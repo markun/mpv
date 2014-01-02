@@ -606,6 +606,11 @@ video_output_features = [
         'func': check_pkg_config(
             'libva', '>= 0.32.0', 'libva-x11', '>= 0.32.0'),
     }, {
+        'name': '--vaapi-wayland',
+        'desc': 'VAAPI acceleration for wayland',
+        'func': check_pkg_config(
+            'libva', '>= 0.32.0', 'libva-wayland', '>= 0.32.0'),
+    }, {
         'name': '--vaapi-vpp',
         'desc': 'VAAPI VPP',
         'deps': [ 'vaapi' ],

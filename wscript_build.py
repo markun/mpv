@@ -368,6 +368,7 @@ def build(ctx):
         ( "video/out/vo_opengl_old.c",           "gl" ),
         ( "video/out/vo_sdl.c",                  "sdl2" ),
         ( "video/out/vo_vaapi.c",                "vaapi" ),
+        ( "video/out/vo_vaapi_wayland.c",                "vaapi" ),
         ( "video/out/vo_vdpau.c",                "vdpau" ),
         ( "video/out/vo_wayland.c",              "wayland" ),
         ( "video/out/vo_x11.c" ,                 "x11" ),
