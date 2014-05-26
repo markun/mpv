@@ -168,7 +168,7 @@ static void set_from_wf(AVCodecContext *avctx, MP_WAVEFORMATEX *wf)
 {
     avctx->channels = wf->nChannels;
     avctx->sample_rate = wf->nSamplesPerSec;
-    avctx->bit_rate = wf->nAvgBytesPerSec * 8;
+    avctx->bit_rate = wf->nAvgBitsPerSec;
     avctx->block_align = wf->nBlockAlign;
     avctx->bits_per_coded_sample = wf->wBitsPerSample;
 
@@ -271,8 +271,8 @@ static int init(struct dec_audio *da, const char *decoder)
     }
 
     da->i_bps = lavc_context->bit_rate;
-    if (sh_audio->wf && sh_audio->wf->nAvgBytesPerSec)
-        da->i_bps = sh_audio->wf->nAvgBytesPerSec * 8;
+    if (sh_audio->wf && sh_audio->wf->nAvgBitsPerSec)
+        da->i_bps = sh_audio->wf->nAvgBitsPerSec;
 
     return 1;
 }

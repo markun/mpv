@@ -29,7 +29,7 @@ typedef struct __attribute__((__packed__)) MP_WAVEFORMATEX {
     unsigned short  wFormatTag;
     unsigned short  nChannels;
     unsigned int    nSamplesPerSec;
-    unsigned int    nAvgBytesPerSec;
+    unsigned int    nAvgBitsPerSec;
     unsigned short  nBlockAlign;
     unsigned short  wBitsPerSample;
     unsigned short  cbSize;

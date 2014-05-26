@@ -128,9 +128,9 @@ static void set_format(WAVEFORMATEXTENSIBLE *wformat, WORD bytepersample,
     wformat->Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE; /* Only PCM is supported */
     wformat->Format.nChannels = channels;
     wformat->Format.nSamplesPerSec = samplerate;
-    wformat->Format.nAvgBytesPerSec = wformat->Format.nChannels *
+    wformat->Format.nAvgBitsPerSec = wformat->Format.nChannels *
                                       bytepersample *
-                                      wformat->Format.nSamplesPerSec;
+                                      wformat->Format.nSamplesPerSec * 8;
     wformat->Format.nBlockAlign = wformat->Format.nChannels * bytepersample;
     wformat->Format.wBitsPerSample = bytepersample * 8;
     wformat->Format.cbSize =
@@ -185,7 +185,7 @@ static int set_ao_format(struct wasapi_state *state,
     }
 
     ao->samplerate = wformat.Format.nSamplesPerSec;
-    ao->bps = wformat.Format.nAvgBytesPerSec;
+    ao->bps = wformat.Format.nAvgBitsPerSec / 8;
     ao->format = format;
 
     if (ao->channels.num != wformat.Format.nChannels) {
@@ -279,7 +279,7 @@ static int try_passthrough(struct wasapi_state *state,
             .wFormatTag = WAVE_FORMAT_EXTENSIBLE,
             .nChannels = ao->channels.num,
             .nSamplesPerSec = ao->samplerate,
-            .nAvgBytesPerSec = (ao->samplerate) * (ao->channels.num * 2),
+            .nAvgBitsPerSec = (ao->samplerate) * (ao->channels.num * 2) * 8,
             .nBlockAlign = ao->channels.num * 2,
             .wBitsPerSample = 16,
             .cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX),

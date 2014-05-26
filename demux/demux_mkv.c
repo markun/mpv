@@ -67,14 +67,14 @@ static const unsigned char sipr_swaps[38][2] = {
 #define SIPR_FLAVORS 4
 #define ATRC_FLAVORS 8
 #define COOK_FLAVORS 34
-static const int sipr_fl2bps[SIPR_FLAVORS] = { 813, 1062, 625, 2000 };
+static const int sipr_fl2bps[SIPR_FLAVORS] = { 6504, 8496, 5000, 16000 };
 static const int atrc_fl2bps[ATRC_FLAVORS] = {
-    8269, 11714, 13092, 16538, 18260, 22050, 33075, 44100 };
+    66150, 93713, 104738, 132300, 146081, 176400, 264600, 352800 };
 static const int cook_fl2bps[COOK_FLAVORS] = {
-    1000, 1378, 2024, 2584, 4005, 5513, 8010, 4005, 750, 2498,
-    4048, 5513, 8010, 11973, 8010, 2584, 4005, 2067, 2584, 2584,
-    4005, 4005, 5513, 5513, 8010, 12059, 1550, 8010, 12059, 5513,
-    12016, 16408, 22911, 33506
+    8000, 11024, 16192, 20672, 32040, 44104, 64080, 32040, 6000, 19984,
+    32384, 44104, 64080, 95784, 64080, 20672, 32040, 16536, 20672, 20672,
+    32040, 32040, 44104, 44104, 64080, 96472, 12400, 64080, 96472, 44104,
+    96128, 131264, 183288, 268048
 };
 
 enum {
@@ -1358,7 +1358,7 @@ static int demux_mkv_open_audio(demuxer_t *demuxer, mkv_track_t *track)
         sh_a->wf->wFormatTag = le2me_16(wf->wFormatTag);
         sh_a->wf->nChannels = le2me_16(wf->nChannels);
         sh_a->wf->nSamplesPerSec = le2me_32(wf->nSamplesPerSec);
-        sh_a->wf->nAvgBytesPerSec = le2me_32(wf->nAvgBytesPerSec);
+        sh_a->wf->nAvgBitsPerSec = le2me_32(wf->nAvgBitsPerSec);
         sh_a->wf->nBlockAlign = le2me_16(wf->nBlockAlign);
         sh_a->wf->wBitsPerSample = le2me_16(wf->wBitsPerSample);
         sh_a->wf->cbSize = track->private_size - sizeof(*sh_a->wf);
@@ -1401,7 +1401,7 @@ static int demux_mkv_open_audio(demuxer_t *demuxer, mkv_track_t *track)
     else
         sh_a->wf->wBitsPerSample = track->a_bps;
     if (track->a_formattag == 0x0055) { /* MP3 || MP2 */
-        sh_a->wf->nAvgBytesPerSec = 16000;
+        sh_a->wf->nAvgBitsPerSec = 128000;
         sh_a->wf->nBlockAlign = 1152;
     } else if ((track->a_formattag == 0x2000)           /* AC3 */
                || track->a_formattag == MP_FOURCC('E', 'A', 'C', '3')
@@ -1415,13 +1415,13 @@ static int demux_mkv_open_audio(demuxer_t *demuxer, mkv_track_t *track)
         /* ok */
     } else if (!strcmp(track->codec_id, MKV_A_QDMC)
                || !strcmp(track->codec_id, MKV_A_QDMC2)) {
-        sh_a->wf->nAvgBytesPerSec = 16000;
+        sh_a->wf->nAvgBitsPerSec = 128000;
         sh_a->wf->nBlockAlign = 1486;
         copy_audio_private_data(sh_a, track);
     } else if (track->a_formattag == MP_FOURCC('M', 'P', '4', 'A')) {
         int profile, srate_idx;
 
-        sh_a->wf->nAvgBytesPerSec = 16000;
+        sh_a->wf->nAvgBitsPerSec = 128000;
         sh_a->wf->nBlockAlign = 1024;
 
         if (!strcmp(track->codec_id, MKV_A_AAC) && track->private_data) {
@@ -1481,7 +1481,7 @@ static int demux_mkv_open_audio(demuxer_t *demuxer, mkv_track_t *track)
         int codecdata_length, version;
         int flavor;
 
-        sh_a->wf->nAvgBytesPerSec = 0;  /* FIXME !? */
+        sh_a->wf->nAvgBitsPerSec = 0;  /* FIXME !? */
 
         version = AV_RB16(src + 4);
         flavor = AV_RB16(src + 22);
@@ -1509,19 +1509,19 @@ static int demux_mkv_open_audio(demuxer_t *demuxer, mkv_track_t *track)
 
         switch (track->a_formattag) {
         case MP_FOURCC('a', 't', 'r', 'c'):
-            sh_a->wf->nAvgBytesPerSec = atrc_fl2bps[flavor];
+            sh_a->wf->nAvgBitsPerSec = atrc_fl2bps[flavor];
             sh_a->wf->nBlockAlign = track->sub_packet_size;
             goto audiobuf;
         case MP_FOURCC('c', 'o', 'o', 'k'):
-            sh_a->wf->nAvgBytesPerSec = cook_fl2bps[flavor];
+            sh_a->wf->nAvgBitsPerSec = cook_fl2bps[flavor];
             sh_a->wf->nBlockAlign = track->sub_packet_size;
             goto audiobuf;
         case MP_FOURCC('s', 'i', 'p', 'r'):
-            sh_a->wf->nAvgBytesPerSec = sipr_fl2bps[flavor];
+            sh_a->wf->nAvgBitsPerSec = sipr_fl2bps[flavor];
             sh_a->wf->nBlockAlign = track->coded_framesize;
             goto audiobuf;
         case MP_FOURCC('2', '8', '_', '8'):
-            sh_a->wf->nAvgBytesPerSec = 3600;
+            sh_a->wf->nAvgBitsPerSec = 28800;
             sh_a->wf->nBlockAlign = track->coded_framesize;
         audiobuf:
             track->audio_buf =

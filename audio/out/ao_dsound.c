@@ -448,8 +448,8 @@ static int init(struct ao *ao)
         // Needed for 5.1 on emu101k - shit soundblaster
         dsbdesc.dwFlags |= DSBCAPS_LOCHARDWARE;
     }
-    wformat.Format.nAvgBytesPerSec = wformat.Format.nSamplesPerSec *
-                                     wformat.Format.nBlockAlign;
+    wformat.Format.nAvgBitsPerSec = wformat.Format.nSamplesPerSec *
+                                     wformat.Format.nBlockAlign * 8;
 
     dsbdesc.dwBufferBytes = buffersize;
     dsbdesc.lpwfxFormat = (WAVEFORMATEX *)&wformat;

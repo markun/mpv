@@ -94,16 +94,17 @@ static int demux_rawaudio_open(demuxer_t *demuxer, enum demux_check check)
     sh_audio->channels = channels;
     w->nChannels = sh_audio->channels.num;
     w->nSamplesPerSec = sh_audio->samplerate = samplerate;
-    int samplesize = (af_fmt2bits(aformat) + 7) / 8;
-    w->nAvgBytesPerSec = samplerate * samplesize * w->nChannels;
-    w->nBlockAlign = w->nChannels * samplesize;
-    w->wBitsPerSample = 8 * samplesize;
+    int bits_per_sample = af_fmt2bits(aformat);
+    int bytes_per_sample = (bits_per_sample + 7) / 8;
+    w->nAvgBitsPerSec = samplerate * bits_per_sample * w->nChannels;
+    w->nBlockAlign = w->nChannels * bytes_per_sample;
+    w->wBitsPerSample = bits_per_sample;
     w->cbSize = 0;
 
     struct priv *p = talloc_ptrtype(demuxer, p);
     demuxer->priv = p;
     *p = (struct priv) {
-        .frame_size = samplesize * sh_audio->channels.num,
+        .frame_size = bytes_per_sample * sh_audio->channels.num,
         .frame_rate = samplerate,
         .read_frames = samplerate,
     };
