@@ -278,14 +278,14 @@ static void update_info(struct dec_audio *da)
             /* Might not be numerically optimal, but works fine enough. */
             con->mean_rate = ((con->mean_count - 1) * con->mean_rate +
                               bitrate) / con->mean_count;
-            da->i_bps = (int) (con->mean_rate + 0.5);
+            da->bitrate = (int) (con->mean_rate + 0.5);
 
             con->delay = 10;
-            printf("bitrate: %d\n", da->i_bps);
+            printf("bitrate: %d\n", da->bitrate);
         }
     } else {
-        da->i_bps = bitrate ? bitrate : compute_bitrate(&finfo);
-            printf("bitrate: %d\n", da->i_bps);
+        da->bitrate = bitrate ? bitrate : compute_bitrate(&finfo);
+            printf("bitrate: %d\n", da->bitrate);
         con->delay      = 1;
         con->mean_rate  = 0.;
         con->mean_count = 0;
