@@ -27,6 +27,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <va/va_x11.h>
+#include <va/va_wayland.h>
 
 #include "config.h"
 #include "common/msg.h"
@@ -36,6 +37,7 @@
 #include "sub/osd.h"
 #include "sub/img_convert.h"
 #include "x11_common.h"
+#include "wayland_common.h"
 
 #include "video/vfcap.h"
 #include "video/mp_image.h"
@@ -66,6 +68,11 @@ struct vaapi_osd_part {
 #define MAX_OUTPUT_SURFACES 2
 
 struct priv {
+    int (*vo_init)(struct vo *vo);
+    void (*vo_uninit)(struct vo *vo);
+    int (*vo_control)(struct vo *vo, int *events, int request, void *arg);
+    void (*vo_config)(struct vo *vo, int flags);
+    void (*vo_putsurface)(struct vo *vo, VASurfaceID surface, int flags);
     struct mp_log           *log;
     struct vo               *vo;
     VADisplay                display;
@@ -102,6 +109,91 @@ struct priv {
     VADisplayAttribute      *va_display_attrs;
     int                      va_num_display_attrs;
 };
+
+static int va_wayland_init(struct vo *vo) {
+    struct priv *p = vo->priv;
+
+    if (!vo_wayland_init(vo))
+        return -1;
+
+    p->display = vaGetDisplayWl(vo->wayland->display.display);
+    if (!p->display)
+        return -1;
+
+    return 0;
+}
+
+static void va_wayland_uninit(struct vo *vo) {
+    vo_wayland_uninit(vo);
+}
+
+static int va_wayland_control(struct vo *vo, int *events, int request, void *arg) {
+    return vo_wayland_control(vo, events, request, arg);
+}
+
+static void va_wayland_config(struct vo *vo, int flags) {
+    vo_wayland_config(vo, flags);
+}
+
+static void va_wayland_putsurface(struct vo *vo, VASurfaceID surface, int flags) {
+    struct priv *p = vo->priv;
+    struct wl_buffer *buffer;
+
+    VAStatus status = vaGetSurfaceBufferWl(p->display, surface, flags, &buffer);
+    CHECK_VA_STATUS(p, "vaGetSurfaceBufferWl()");
+
+    struct wl_surface *video_surface = p->vo->wayland->window.video_surface;
+    int width = p->src_rect.x1 - p->src_rect.x0;
+    int height = p->src_rect.y1 - p->src_rect.y0;
+    printf("width: %d %d\n", p->vo->wayland->window.width, p->vo->wayland->window.height);
+    wl_surface_attach(video_surface, buffer, 0, 0);
+    wl_surface_damage(video_surface, 0, 0, width, height);
+    wl_surface_commit(video_surface);
+}
+
+static int va_x11_init(struct vo *vo) {
+    struct priv *p = vo->priv;
+
+    if (!vo_x11_init(vo))
+        return -1;
+
+    p->display = vaGetDisplay(vo->x11->display);
+    if (!p->display)
+        return -1;
+
+    return 0;
+}
+
+static void va_x11_uninit(struct vo *vo) {
+    vo_x11_uninit(vo);
+}
+
+static int va_x11_control(struct vo *vo, int *events, int request, void *arg) {
+    return vo_x11_control(vo, events, request, arg);
+}
+
+static void va_x11_config(struct vo *vo, int flags) {
+    vo_x11_config_vo_window(vo, NULL, flags, "vaapi");
+}
+
+static void va_x11_putsurface(struct vo *vo, VASurfaceID surface, int flags) {
+    struct priv *p = vo->priv;
+
+    VAStatus status = vaPutSurface(p->display,
+                          surface,
+                          p->vo->x11->window,
+                          p->src_rect.x0,
+                          p->src_rect.y0,
+                          p->src_rect.x1 - p->src_rect.x0,
+                          p->src_rect.y1 - p->src_rect.y0,
+                          p->dst_rect.x0,
+                          p->dst_rect.y0,
+                          p->dst_rect.x1 - p->dst_rect.x0,
+                          p->dst_rect.y1 - p->dst_rect.y0,
+                          NULL, 0,
+                          flags);
+    CHECK_VA_STATUS(p, "vaPutSurface()");
+}
 
 #define OSD_VA_FORMAT VA_FOURCC_BGRA
 
@@ -159,7 +251,7 @@ static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
 
     free_video_specific(p);
 
-    vo_x11_config_vo_window(vo, NULL, flags, "vaapi");
+    p->vo_config(vo, flags);
 
     if (params->imgfmt != IMGFMT_VAAPI) {
         if (!alloc_swdec_surfaces(p, params->w, params->h, params->imgfmt))
@@ -224,26 +316,14 @@ static bool render_to_screen(struct priv *p, struct mp_image *mpi)
         }
     }
 
-    int flags = va_get_colorspace_flag(p->image_params.colorspace) | p->scaling;
+    int flags = 0;//va_get_colorspace_flag(p->image_params.colorspace) | p->scaling;
     if (p->deint && (fields & MP_IMGFIELD_INTERLACED)) {
         flags |= (fields & MP_IMGFIELD_TOP_FIRST) ? VA_BOTTOM_FIELD : VA_TOP_FIELD;
     } else {
         flags |= VA_FRAME_PICTURE;
     }
-    status = vaPutSurface(p->display,
-                          surface,
-                          p->vo->x11->window,
-                          p->src_rect.x0,
-                          p->src_rect.y0,
-                          p->src_rect.x1 - p->src_rect.x0,
-                          p->src_rect.y1 - p->src_rect.y0,
-                          p->dst_rect.x0,
-                          p->dst_rect.y0,
-                          p->dst_rect.x1 - p->dst_rect.x0,
-                          p->dst_rect.y1 - p->dst_rect.y0,
-                          NULL, 0,
-                          flags);
-    CHECK_VA_STATUS(p, "vaPutSurface()");
+
+    p->vo_putsurface(p->vo, surface, flags);
 
     for (int n = 0; n < MAX_OSD_PARTS; n++) {
         struct vaapi_osd_part *part = &p->osd_parts[n];
@@ -537,7 +617,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
     }
 
     int events = 0;
-    int r = vo_x11_control(vo, &events, request, data);
+    int r = p->vo_control(vo, &events, request, data);
     if (events & VO_EVENT_RESIZE)
         resize(p);
     if (events & VO_EVENT_EXPOSE)
@@ -559,7 +639,23 @@ static void uninit(struct vo *vo)
 
     va_destroy(p->mpvaapi);
 
-    vo_x11_uninit(vo);
+    p->vo_uninit(vo);
+}
+
+static void va_set_backend_x11(struct priv *p) {
+    p->vo_init = va_x11_init;
+    p->vo_uninit = va_x11_uninit;
+    p->vo_control = va_x11_control;
+    p->vo_config = va_x11_config;
+    p->vo_putsurface = va_x11_putsurface;
+}
+
+static void va_set_backend_wayland(struct priv *p) {
+    p->vo_init = va_wayland_init;
+    p->vo_uninit = va_wayland_uninit;
+    p->vo_control = va_wayland_control;
+    p->vo_config = va_wayland_config;
+    p->vo_putsurface = va_wayland_putsurface;
 }
 
 static int preinit(struct vo *vo)
@@ -568,14 +664,23 @@ static int preinit(struct vo *vo)
     p->vo = vo;
     p->log = vo->log;
 
+    //va_set_backend_x11(p);
+
     VAStatus status;
 
-    if (!vo_x11_init(vo))
-        return -1;
-
-    p->display = vaGetDisplay(vo->x11->display);
-    if (!p->display)
-        return -1;
+    printf("trying wayland\n");
+    va_set_backend_wayland(p);
+    int r = p->vo_init(vo);
+    printf("result %d\n", r);
+    if (r != 0) {
+        printf("trying x11\n");
+        va_set_backend_x11(p);
+        int r = p->vo_init(vo);
+        printf("result %d\n", r);
+        if (r != 0) {
+            return -1;
+        }
+    }
 
     p->mpvaapi = va_initialize(p->display, p->log);
     if (!p->mpvaapi) {
@@ -636,7 +741,7 @@ static int preinit(struct vo *vo)
 #define OPT_BASE_STRUCT struct priv
 
 const struct vo_driver video_out_vaapi = {
-    .description = "VA API with X11",
+    .description = "VA API",
     .name = "vaapi",
     .preinit = preinit,
     .query_format = query_format,
