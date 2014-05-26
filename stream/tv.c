@@ -814,7 +814,7 @@ static int demux_open_tv(demuxer_t *demuxer, enum demux_check check)
         sh_audio->wf->wBitsPerSample = samplesize * 8;
         sh_audio->wf->nSamplesPerSec = sh_audio->samplerate;
         sh_audio->wf->nBlockAlign = samplesize * sh_audio->channels.num;
-        sh_audio->wf->nAvgBytesPerSec = sh_audio->i_bps;
+        sh_audio->wf->nAvgBytesPerSec = sh_audio->i_bps / 8;
 
         MP_VERBOSE(tvh, "  TV audio: %d channels, %d bits, %d Hz\n",
           sh_audio->wf->nChannels, sh_audio->wf->wBitsPerSample,
