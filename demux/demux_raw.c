@@ -94,8 +94,8 @@ static int demux_rawaudio_open(demuxer_t *demuxer, enum demux_check check)
     sh_audio->channels = channels;
     w->nChannels = sh_audio->channels.num;
     w->nSamplesPerSec = sh_audio->samplerate = samplerate;
-    int bits_per_sample = af_fmt2bits(aformat);
-    int bytes_per_sample = (bits_per_sample + 7) / 8;
+    int bytes_per_sample = af_fmt2bps(aformat);
+    int bits_per_sample = bytes_per_sample * 8;
     w->nAvgBitsPerSec = samplerate * bits_per_sample * w->nChannels;
     w->nBlockAlign = w->nChannels * bytes_per_sample;
     w->wBitsPerSample = bits_per_sample;
