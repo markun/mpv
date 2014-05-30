@@ -226,11 +226,32 @@ static void draw_ass_rgba(unsigned char *src, int src_w, int src_h,
         uint32_t *dstrow = (uint32_t *) dst;
         for (int x = 0; x < src_w; x++) {
             const unsigned int v = src[x];
+
+            if (v == 0) {
+                continue;
+            }
+
+            if (a == 0xff && v == 0xff) {
+                dstrow[x] = (color >> 8) | (0xff << 24);
+                continue;
+            }
+
             int rr = (r * a * v);
             int gg = (g * a * v);
             int bb = (b * a * v);
             int aa =      a * v;
+
             uint32_t dstpix = dstrow[x];
+
+            if (dstpix == 0) {
+                unsigned int dstb = bb / (255 * 255);
+                unsigned int dstg = gg / (255 * 255);
+                unsigned int dstr = rr / (255 * 255);
+                unsigned int dsta = aa / 255;
+                dstrow[x] = dstb | (dstg << 8) | (dstr << 16) | (dsta << 24);
+                continue;
+            }
+
             unsigned int dstb =  dstpix        & 0xFF;
             unsigned int dstg = (dstpix >>  8) & 0xFF;
             unsigned int dstr = (dstpix >> 16) & 0xFF;
