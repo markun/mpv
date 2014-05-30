@@ -96,9 +96,15 @@ int bstrspn(struct bstr str, const char *accept)
 
 int bstr_find(struct bstr haystack, struct bstr needle)
 {
-    for (int i = 0; i < haystack.len; i++)
-        if (bstr_startswith(bstr_splice(haystack, i, haystack.len), needle))
+    int search_end = haystack.len - needle.len;
+
+    for (int i = 0; i <= search_end; i++) {
+        if (bstr_startswith(haystack, needle))
             return i;
+
+        haystack.start++;
+    }
+
     return -1;
 }
 
