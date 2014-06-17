@@ -37,18 +37,17 @@ void packer_reset(struct bitmap_packer *packer)
 {
     struct bitmap_packer old = *packer;
     *packer = (struct bitmap_packer) {
-        .w_max = old.w_max,
-        .h_max = old.h_max,
+        .size_max = old.size_max,
     };
     talloc_free_children(packer);
 }
 
-void packer_get_bb(struct bitmap_packer *packer, struct pos out_bb[2])
+void packer_get_bb(struct bitmap_packer *packer, struct mp_pos out_bb[2])
 {
-    out_bb[0] = (struct pos) {0};
-    out_bb[1] = (struct pos) {
-        FFMIN(packer->used_width + packer->padding, packer->w),
-        FFMIN(packer->used_height + packer->padding, packer->h),
+    out_bb[0] = (struct mp_pos) {0};
+    out_bb[1] = (struct mp_pos) {
+        FFMIN(packer->used_width + packer->padding, packer->size.w),
+        FFMIN(packer->used_height + packer->padding, packer->size.h),
     };
 }
 
@@ -76,7 +75,7 @@ static int size_index(int s)
  * row starts with rectangles of size 3x50, 10x40 and 5x20 then the
  * free rectangle with corners (13, 20)-(w, 50) is filled recursively.
  */
-static int pack_rectangles(struct pos *in, struct pos *out, int num_rects,
+static int pack_rectangles(struct mp_pos *in, struct mp_pos *out, int num_rects,
                            int w, int h, int *scratch, int *used_width)
 {
     int bins[16 << HEIGHT_SORT_BITS];
@@ -115,7 +114,7 @@ static int pack_rectangles(struct pos *in, struct pos *out, int num_rects,
                 if (right > w)
                     break;
                 bins[s.size]++;
-                out[obj] = (struct pos){s.x, y};
+                out[obj] = (struct mp_pos){s.x, y};
                 num_rects--;
                 if (maxy < 0)
                     stack[stackpos++] = s;
@@ -134,12 +133,12 @@ int packer_pack(struct bitmap_packer *packer)
 {
     if (packer->count == 0)
         return 0;
-    int w_orig = packer->w, h_orig = packer->h;
-    struct pos *in = packer->in;
+    struct mp_size orig_size = packer->size;
+    struct mp_pos *in = packer->in;
     int xmax = 0, ymax = 0;
     for (int i = 0; i < packer->count; i++) {
         if (in[i].x <= packer->padding || in[i].y <= packer->padding)
-            in[i] = (struct pos){0, 0};
+            in[i] = (struct mp_pos){0, 0};
         if (in[i].x < 0 || in [i].x > 65535 || in[i].y < 0 || in[i].y > 65535) {
             fprintf(stderr, "Invalid OSD / subtitle bitmap size\n");
             abort();
@@ -149,31 +148,30 @@ int packer_pack(struct bitmap_packer *packer)
     }
     xmax = FFMAX(0, xmax - packer->padding);
     ymax = FFMAX(0, ymax - packer->padding);
-    if (xmax > packer->w)
-        packer->w = 1 << (av_log2(xmax - 1) + 1);
-    if (ymax > packer->h)
-        packer->h = 1 << (av_log2(ymax - 1) + 1);
+    if (xmax > packer->size.w)
+        packer->size.w = 1 << (av_log2(xmax - 1) + 1);
+    if (ymax > packer->size.h)
+        packer->size.h = 1 << (av_log2(ymax - 1) + 1);
     while (1) {
         int used_width = 0;
         int y = pack_rectangles(in, packer->result, packer->count,
-                                packer->w + packer->padding,
-                                packer->h + packer->padding,
+                                packer->size.w + packer->padding,
+                                packer->size.h + packer->padding,
                                 packer->scratch, &used_width);
         if (y >= 0) {
             // No padding at edges
-            packer->used_width = FFMIN(used_width, packer->w);
-            packer->used_height = FFMIN(y, packer->h);
-            assert(packer->w == 0 || IS_POWER_OF_2(packer->w));
-            assert(packer->h == 0 || IS_POWER_OF_2(packer->h));
-            return packer->w != w_orig || packer->h != h_orig;
+            packer->used_width = FFMIN(used_width, packer->size.w);
+            packer->used_height = FFMIN(y, packer->size.h);
+            assert(packer->size.w == 0 || IS_POWER_OF_2(packer->size.w));
+            assert(packer->size.h == 0 || IS_POWER_OF_2(packer->size.h));
+            return !mp_size_equals(&packer->size, &orig_size);
         }
-        if (packer->w <= packer->h && packer->w != packer->w_max)
-            packer->w = FFMIN(packer->w * 2, packer->w_max);
-        else if (packer->h != packer->h_max)
-            packer->h = FFMIN(packer->h * 2, packer->h_max);
+        if (packer->size.w <= packer->size.h && packer->size.w != packer->size_max.w)
+            packer->size.w = FFMIN(packer->size.w * 2, packer->size_max.w);
+        else if (packer->size.h != packer->size_max.h)
+            packer->size.h = FFMIN(packer->size.h * 2, packer->size_max.h);
         else {
-            packer->w = w_orig;
-            packer->h = h_orig;
+            packer->size = orig_size;
             return -1;
         }
     }
@@ -187,7 +185,7 @@ void packer_set_size(struct bitmap_packer *packer, int size)
     packer->asize = FFMAX(packer->asize * 2, size);
     talloc_free(packer->result);
     talloc_free(packer->scratch);
-    packer->in = talloc_realloc(packer, packer->in, struct pos, packer->asize);
+    packer->in = talloc_realloc(packer, packer->in, struct mp_pos, packer->asize);
     packer->result = talloc_array_ptrtype(packer, packer->result,
                                           packer->asize);
     packer->scratch = talloc_array_ptrtype(packer, packer->scratch,
@@ -203,7 +201,7 @@ int packer_pack_from_subbitmaps(struct bitmap_packer *packer,
     packer_set_size(packer, b->num_parts);
     int a = packer->padding;
     for (int i = 0; i < b->num_parts; i++)
-        packer->in[i] = (struct pos){b->parts[i].w + a, b->parts[i].h + a};
+        packer->in[i] = (struct mp_pos){b->parts[i].size.w + a, b->parts[i].size.h + a};
     return packer_pack(packer);
 }
 
@@ -212,16 +210,16 @@ void packer_copy_subbitmaps(struct bitmap_packer *packer, struct sub_bitmaps *b,
 {
     assert(packer->count == b->num_parts);
     if (packer->padding) {
-        struct pos bb[2];
+        struct mp_pos bb[2];
         packer_get_bb(packer, bb);
         memset_pic(data, 0, bb[1].x * pixel_stride, bb[1].y, stride);
     }
     for (int n = 0; n < packer->count; n++) {
         struct sub_bitmap *s = &b->parts[n];
-        struct pos p = packer->result[n];
+        struct mp_pos p = packer->result[n];
 
         void *pdata = (uint8_t *)data + p.y * stride + p.x * pixel_stride;
-        memcpy_pic(pdata, s->bitmap, s->w * pixel_stride, s->h,
+        memcpy_pic(pdata, s->bitmap, s->size.w * pixel_stride, s->size.h,
                    stride, s->stride);
     }
 }

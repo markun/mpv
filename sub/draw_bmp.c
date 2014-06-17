@@ -186,10 +186,10 @@ static void blend_src_alpha(void *dst, int dst_stride, void *src,
 static void unpremultiply_and_split_BGR32(struct mp_image *img,
                                           struct mp_image *alpha)
 {
-    for (int y = 0; y < img->h; ++y) {
+    for (int y = 0; y < img->size.h; ++y) {
         uint32_t *irow = (uint32_t *) &img->planes[0][img->stride[0] * y];
         uint8_t *arow = &alpha->planes[0][alpha->stride[0] * y];
-        for (int x = 0; x < img->w; ++x) {
+        for (int x = 0; x < img->size.w; ++x) {
             uint32_t pval = irow[x];
             uint8_t aval = (pval >> 24);
             uint8_t rval = (pval >> 16) & 0xFF;
@@ -219,12 +219,12 @@ static void scale_sb_rgba(struct sub_bitmap *sb, struct mp_image *dst_format,
 {
     struct mp_image sbisrc = {0};
     mp_image_setfmt(&sbisrc, IMGFMT_BGR32);
-    mp_image_set_size(&sbisrc, sb->w, sb->h);
+    mp_image_set_size(&sbisrc, sb->size);
     sbisrc.planes[0] = sb->bitmap;
     sbisrc.stride[0] = sb->stride;
-    struct mp_image *sbisrc2 = mp_image_alloc(IMGFMT_BGR32, sb->dw, sb->dh);
-    struct mp_image *sba = mp_image_alloc(IMGFMT_Y8, sb->dw, sb->dh);
-    struct mp_image *sbi = mp_image_alloc(dst_format->imgfmt, sb->dw, sb->dh);
+    struct mp_image *sbisrc2 = mp_image_alloc(IMGFMT_BGR32, sb->dsize);
+    struct mp_image *sba = mp_image_alloc(IMGFMT_Y8, sb->dsize);
+    struct mp_image *sbi = mp_image_alloc(dst_format->imgfmt, sb->dsize);
     if (!sbisrc2 || !sba || !sbi) {
         talloc_free(sbisrc2);
         talloc_free(sba);
@@ -255,7 +255,7 @@ static void draw_rgba(struct mp_draw_sub_cache *cache, struct mp_rect bb,
     for (int i = 0; i < sbs->num_parts; ++i) {
         struct sub_bitmap *sb = &sbs->parts[i];
 
-        if (sb->w < 1 || sb->h < 1)
+        if (sb->size.w < 1 || sb->size.h < 1)
             continue;
 
         struct mp_image dst;
@@ -277,7 +277,7 @@ static void draw_rgba(struct mp_draw_sub_cache *cache, struct mp_rect bb,
         for (int p = 0; p < (temp->num_planes > 2 ? 3 : 1); p++) {
             void *src = sbi->planes[p] + src_y * sbi->stride[p] + src_x * bytes;
             blend_src_alpha(dst.planes[p], dst.stride[p], src, sbi->stride[p],
-                            alpha_p, sba->stride[0], dst.w, dst.h, bytes);
+                            alpha_p, sba->stride[0], dst.size.w, dst.size.h, bytes);
         }
 
         part->imgs[i].i = talloc_steal(part, sbi);
@@ -327,7 +327,7 @@ static void draw_ass(struct mp_draw_sub_cache *cache, struct mp_rect bb,
         uint8_t *alpha_p = (uint8_t *)sb->bitmap + src_y * sb->stride + src_x;
         for (int p = 0; p < (temp->num_planes > 2 ? 3 : 1); p++) {
             blend_const_alpha(dst.planes[p], dst.stride[p], color_yuv[p],
-                              alpha_p, sb->stride, a, dst.w, dst.h, bytes);
+                              alpha_p, sb->stride, a, dst.size.w, dst.size.h, bytes);
         }
     }
 }
@@ -335,13 +335,13 @@ static void draw_ass(struct mp_draw_sub_cache *cache, struct mp_rect bb,
 static void get_swscale_alignment(const struct mp_image *img, int *out_xstep,
                                   int *out_ystep)
 {
-    int sx = (1 << img->chroma_x_shift);
-    int sy = (1 << img->chroma_y_shift);
+    int sx = (1 << img->chroma_shift.x);
+    int sy = (1 << img->chroma_shift.y);
 
     for (int p = 0; p < img->num_planes; ++p) {
         int bits = img->fmt.bpp[p];
         // the * 2 fixes problems with writing past the destination width
-        while (((sx >> img->chroma_x_shift) * bits) % (SWS_MIN_BYTE_ALIGN * 8 * 2))
+        while (((sx >> img->chroma_shift.x) * bits) % (SWS_MIN_BYTE_ALIGN * 8 * 2))
             sx *= 2;
     }
 
@@ -351,16 +351,16 @@ static void get_swscale_alignment(const struct mp_image *img, int *out_xstep,
 
 static void align_bbox(int xstep, int ystep, struct mp_rect *rc)
 {
-    rc->x0 = rc->x0 & ~(xstep - 1);
-    rc->y0 = rc->y0 & ~(ystep - 1);
-    rc->x1 = FFALIGN(rc->x1, xstep);
-    rc->y1 = FFALIGN(rc->y1, ystep);
+    rc->start.x = rc->start.x & ~(xstep - 1);
+    rc->start.y = rc->start.y & ~(ystep - 1);
+    rc->end.x = FFALIGN(rc->end.x, xstep);
+    rc->end.y = FFALIGN(rc->end.y, ystep);
 }
 
 // Post condition, if true returned: rc is inside img
 static bool align_bbox_for_swscale(struct mp_image *img, struct mp_rect *rc)
 {
-    struct mp_rect img_rect = {0, 0, img->w, img->h};
+    struct mp_rect img_rect = { .end = { img->size.w, img->size.h } };
     // Get rid of negative coordinates
     if (!mp_rect_intersection(rc, &img_rect))
         return false;
@@ -434,14 +434,15 @@ static bool get_sub_area(struct mp_rect bb, struct mp_image *temp,
                          int *out_src_x, int *out_src_y)
 {
     // coordinates are relative to the bbox
-    struct mp_rect dst = {sb->x - bb.x0, sb->y - bb.y0};
-    dst.x1 = dst.x0 + sb->dw;
-    dst.y1 = dst.y0 + sb->dh;
-    if (!mp_rect_intersection(&dst, &(struct mp_rect){0, 0, temp->w, temp->h}))
+    struct mp_extend dst_ext = { .start = sb->start, .size = sb->dsize }; 
+    dst_ext.start.x -= bb.start.x;
+    dst_ext.start.y -= bb.start.y;
+    struct mp_rect dst = mp_extend2rect(&dst_ext);
+    if (!mp_rect_intersection(&dst, &(struct mp_rect){ .end = { temp->size.w, temp->size.h } }))
         return false;
 
-    *out_src_x = (dst.x0 - sb->x) + bb.x0;
-    *out_src_y = (dst.y0 - sb->y) + bb.y0;
+    *out_src_x = (dst.start.x - sb->start.x) + bb.start.x;
+    *out_src_y = (dst.start.y - sb->start.y) + bb.start.y;
     *out_area = *temp;
     mp_image_crop_rc(out_area, dst);
 
@@ -456,10 +457,10 @@ static struct mp_image *chroma_up(struct mp_draw_sub_cache *cache, int imgfmt,
         return src;
 
     if (!cache->upsample_img || cache->upsample_img->imgfmt != imgfmt ||
-        cache->upsample_img->w < src->w || cache->upsample_img->h < src->h)
+        cache->upsample_img->size.w < src->size.w || cache->upsample_img->size.h < src->size.h)
     {
         talloc_free(cache->upsample_img);
-        cache->upsample_img = mp_image_alloc(imgfmt, src->w, src->h);
+        cache->upsample_img = mp_image_alloc(imgfmt, src->size);
         talloc_steal(cache, cache->upsample_img);
         if (!cache->upsample_img)
             return NULL;
@@ -467,7 +468,7 @@ static struct mp_image *chroma_up(struct mp_draw_sub_cache *cache, int imgfmt,
 
     cache->upsample_temp = *cache->upsample_img;
     struct mp_image *temp = &cache->upsample_temp;
-    mp_image_set_size(temp, src->w, src->h);
+    mp_image_set_size(temp, src->size);
 
     // The temp image is always YUV, but src not necessarily.
     // Reduce amount of conversions in YUV case (upsampling/shifting only)
@@ -482,9 +483,9 @@ static struct mp_image *chroma_up(struct mp_draw_sub_cache *cache, int imgfmt,
         // The whole point is not having swscale copy the Y plane
         struct mp_image t_dst = *temp;
         mp_image_setfmt(&t_dst, IMGFMT_Y8);
-        mp_image_set_size(&t_dst, temp->chroma_width, temp->chroma_height);
+        mp_image_set_size(&t_dst, temp->chroma_size);
         struct mp_image t_src = t_dst;
-        mp_image_set_size(&t_src, src->chroma_width, src->chroma_height);
+        mp_image_set_size(&t_src, src->chroma_size);
         for (int c = 0; c < 2; c++) {
             t_dst.planes[0] = temp->planes[1 + c];
             t_dst.stride[0] = temp->stride[1 + c];
@@ -504,7 +505,7 @@ static struct mp_image *chroma_up(struct mp_draw_sub_cache *cache, int imgfmt,
 // Undo chroma_up() (copy temp to old_src if needed)
 static void chroma_down(struct mp_image *old_src, struct mp_image *temp)
 {
-    assert(old_src->w == temp->w && old_src->h == temp->h);
+    assert(mp_size_equals(&old_src->size, &temp->size));
     if (temp != old_src) {
         if (old_src->imgfmt == IMGFMT_420P) {
             // Downsampling, skipping the Y plane (see chroma_up())
@@ -512,10 +513,9 @@ static void chroma_down(struct mp_image *old_src, struct mp_image *temp)
             assert(temp->planes[0] == old_src->planes[0]);
             struct mp_image t_dst = *temp;
             mp_image_setfmt(&t_dst, IMGFMT_Y8);
-            mp_image_set_size(&t_dst, old_src->chroma_width,
-                              old_src->chroma_height);
+            mp_image_set_size(&t_dst, old_src->chroma_size);
             struct mp_image t_src = t_dst;
-            mp_image_set_size(&t_src, temp->chroma_width, temp->chroma_height);
+            mp_image_set_size(&t_src, temp->chroma_size);
             for (int c = 0; c < 2; c++) {
                 t_dst.planes[0] = old_src->planes[1 + c];
                 t_dst.stride[0] = old_src->stride[1 + c];

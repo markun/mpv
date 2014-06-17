@@ -92,7 +92,7 @@ static void create_ass_track(struct osd_state *osd, struct osd_object *obj,
     int old_res_x = track->PlayResX;
     int old_res_y = track->PlayResY;
 
-    double aspect = 1.0 * obj->vo_res.w / FFMAX(obj->vo_res.h, 1) /
+    double aspect = 1.0 * obj->vo_res.size.w / FFMAX(obj->vo_res.size.h, 1) /
                     obj->vo_res.display_par;
 
     track->track_type = TRACK_TYPE_ASS;
@@ -203,7 +203,7 @@ static void update_osd(struct osd_state *osd, struct osd_object *obj)
     double playresy = obj->osd_track->PlayResY;
     // Compensate for libass and mp_ass_set_style scaling the font etc.
     if (!opts->osd_scale_by_window)
-        playresy *= 720.0 / obj->vo_res.h;
+        playresy *= 720.0 / obj->vo_res.size.h;
 
     ASS_Style *style = obj->osd_track->styles + obj->osd_track->default_style;
     mp_ass_set_style(style, playresy, &font);
@@ -468,7 +468,7 @@ void osd_object_get_bitmaps(struct osd_state *osd, struct osd_object *obj,
     if (!obj->osd_track)
         return;
 
-    ass_set_frame_size(obj->osd_render, obj->vo_res.w, obj->vo_res.h);
+    ass_set_frame_size(obj->osd_render, obj->vo_res.size.w, obj->vo_res.size.h);
     ass_set_aspect_ratio(obj->osd_render, obj->vo_res.display_par, 1.0);
     mp_ass_render_frame(obj->osd_render, obj->osd_track, 0,
                         &obj->parts_cache, out_imgs);

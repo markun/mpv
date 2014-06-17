@@ -71,8 +71,7 @@ struct gl_priv {
     int yuvconvtype;
     int use_rectangle;
     int err_shown;
-    uint32_t image_width;
-    uint32_t image_height;
+    struct mp_size image_size;
     uint32_t image_format;
     int many_fmts;
     int have_texture_rg;
@@ -103,13 +102,12 @@ struct gl_priv {
 
     struct mp_csp_equalizer video_eq;
 
-    int texture_width;
-    int texture_height;
+    struct mp_size texture_size;
     int mpi_flipped;
     int vo_flipped;
 
-    struct mp_rect src_rect;    // displayed part of the source video
-    struct mp_rect dst_rect;    // video rectangle on output window
+    struct mp_extend src_rect;    // displayed part of the source video
+    struct mp_extend dst_rect;    // video rectangle on output window
     struct mp_osd_res osd_res;
 
     int slice_height;
@@ -1364,29 +1362,28 @@ static void resize(struct vo *vo, int x, int y)
 
     gl->MatrixMode(GL_MODELVIEW);
     gl->LoadIdentity();
-    gl->Ortho(0, vo->dwidth, vo->dheight, 0, -1, 1);
+    gl->Ortho(0, vo->dsize.w, vo->dsize.h, 0, -1, 1);
 
     gl->Clear(GL_COLOR_BUFFER_BIT);
     vo->want_redraw = true;
 }
 
-static void texSize(struct vo *vo, int w, int h, int *texw, int *texh)
+static void texSize(struct vo *vo, struct mp_size size, struct mp_size *tex_size)
 {
     struct gl_priv *p = vo->priv;
 
     if (p->use_rectangle) {
-        *texw = w;
-        *texh = h;
+        *tex_size = size;
     } else {
-        *texw = 32;
-        while (*texw < w)
-            *texw *= 2;
-        *texh = 32;
-        while (*texh < h)
-            *texh *= 2;
+        tex_size->w = 32;
+        while (tex_size->w < size.w)
+            tex_size->w *= 2;
+        tex_size->h = 32;
+        while (tex_size->h < size.h)
+            tex_size->h *= 2;
     }
     if (p->ati_hack)
-        *texw = (*texw + 511) & ~511;
+        tex_size->w = (tex_size->w + 511) & ~511;
 }
 
 //! maximum size of custom fragment program
@@ -1405,7 +1402,7 @@ static void update_yuvconv(struct vo *vo)
     mp_csp_copy_equalizer_values(&cparams, &p->video_eq);
     gl_conversion_params_t params = {
         p->target, p->yuvconvtype, cparams,
-        p->texture_width, p->texture_height, 0, 0, p->filter_strength,
+        p->texture_size.w, p->texture_size.h, 0, 0, p->filter_strength,
         p->noise_strength
     };
     struct mp_imgfmt_desc desc = mp_imgfmt_get_desc(p->image_format);
@@ -1427,9 +1424,9 @@ static void update_yuvconv(struct vo *vo)
             free(prog);
         }
         gl->ProgramEnvParameter4f(GL_FRAGMENT_PROGRAM, 0,
-                                  1.0 / p->texture_width,
-                                  1.0 / p->texture_height,
-                                  p->texture_width, p->texture_height);
+                                  1.0 / p->texture_size.w,
+                                  1.0 / p->texture_size.w,
+                                  p->texture_size.w, p->texture_size.h);
     }
     if (p->custom_tex) {
         FILE *f = fopen(p->custom_tex, "rb");
@@ -1467,10 +1464,10 @@ static void draw_osd(struct vo *vo)
         gl->MatrixMode(GL_MODELVIEW);
         gl->PushMatrix();
         // Setup image space -> screen space (assumes osd_res in screen space)
-        int w = vo->dwidth - (p->osd_res.mr + p->osd_res.ml);
-        int h = vo->dheight - (p->osd_res.mt + p->osd_res.mb);
-        gl->Translated(p->osd_res.mr, p->osd_res.mt, 0);
-        gl->Scaled(1.0 / res.w * w, 1.0 / res.h * h, 1);
+        int w = vo->dsize.w - (p->osd_res.margin.r + p->osd_res.margin.l);
+        int h = vo->dsize.h - (p->osd_res.margin.t + p->osd_res.margin.b);
+        gl->Translated(p->osd_res.margin.r, p->osd_res.margin.t, 0);
+        gl->Scaled(1.0 / res.size.w * w, 1.0 / res.size.h * h, 1);
     }
 
     gl->Color4ub((p->osd_color >> 16) & 0xff, (p->osd_color >> 8) & 0xff,
@@ -1622,8 +1619,7 @@ static int initGl(struct vo *vo, uint32_t d_width, uint32_t d_height)
                      SET_YUV_LUM_SCALER(p->lscale) |
                      SET_YUV_CHROM_SCALER(p->cscale);
 
-    texSize(vo, p->image_width, p->image_height,
-            &p->texture_width, &p->texture_height);
+    texSize(vo, p->image_size, &p->texture_size);
 
     gl->Disable(GL_BLEND);
     gl->Disable(GL_DEPTH_TEST);
@@ -1634,11 +1630,11 @@ static int initGl(struct vo *vo, uint32_t d_width, uint32_t d_height)
     gl->TexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
     MP_VERBOSE(vo, "Creating %dx%d texture...\n",
-               p->texture_width, p->texture_height);
+               p->texture_size.w, p->texture_size.h);
 
     glCreateClearTex(gl, p->target, p->texfmt, p->gl_format,
                      p->gl_type, scale_type,
-                     p->texture_width, p->texture_height, 0);
+                     p->texture_size.w, p->texture_size.h, 0);
 
     if (p->mipmap_gen)
         gl->TexParameteri(p->target, GL_GENERATE_MIPMAP, GL_TRUE);
@@ -1660,14 +1656,14 @@ static int initGl(struct vo *vo, uint32_t d_width, uint32_t d_height)
         gl->ActiveTexture(GL_TEXTURE1);
         glCreateClearTex(gl, p->target, p->texfmt, p->gl_format,
                          p->gl_type, scale_type,
-                         p->texture_width >> xs, p->texture_height >> ys,
+                         p->texture_size.w >> xs, p->texture_size.h >> ys,
                          clear);
         if (p->mipmap_gen)
             gl->TexParameteri(p->target, GL_GENERATE_MIPMAP, GL_TRUE);
         gl->ActiveTexture(GL_TEXTURE2);
         glCreateClearTex(gl, p->target, p->texfmt, p->gl_format,
                          p->gl_type, scale_type,
-                         p->texture_width >> xs, p->texture_height >> ys,
+                         p->texture_size.w >> xs, p->texture_size.h >> ys,
                          clear);
         if (p->mipmap_gen)
             gl->TexParameteri(p->target, GL_GENERATE_MIPMAP, GL_TRUE);
@@ -1719,8 +1715,7 @@ static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
 
     struct mp_imgfmt_desc desc = mp_imgfmt_get_desc(params->imgfmt);
 
-    p->image_height = params->h;
-    p->image_width = params->w;
+    p->image_size = params->size;
     p->image_format = params->imgfmt;
     p->is_yuv = !!(desc.flags & MP_IMGFLAG_YUV_P);
     p->is_yuv |= (desc.chroma_xs << 8) | (desc.chroma_ys << 16);
@@ -1736,7 +1731,7 @@ static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
     if (!config_window(vo, flags))
         return -1;
 
-    initGl(vo, vo->dwidth, vo->dheight);
+    initGl(vo, vo->dsize.w, vo->dsize.h);
 
     return 0;
 }
@@ -1752,32 +1747,32 @@ static void do_render(struct vo *vo)
     gl->Color4f(1, 1, 1, 1);
     if (p->is_yuv || p->custom_prog)
         glEnableYUVConversion(gl, p->target, p->yuvconvtype);
-    int src_w = p->src_rect.x1 - p->src_rect.x0;
-    int src_h = p->src_rect.y1 - p->src_rect.y0;
-    int dst_w = p->dst_rect.x1 - p->dst_rect.x0;
-    int dst_h = p->dst_rect.y1 - p->dst_rect.y0;
+    int src_w = p->src_rect.size.w;
+    int src_h = p->src_rect.size.h;
+    int dst_w = p->dst_rect.size.w;
+    int dst_h = p->dst_rect.size.h;
     if (p->stereo_mode) {
         glEnable3DLeft(gl, p->stereo_mode);
         glDrawTex(gl,
-                  p->dst_rect.x0, p->dst_rect.y0, dst_w, dst_h,
-                  p->src_rect.x0 / 2, p->src_rect.y0, src_w / 2, src_h,
-                  p->texture_width, p->texture_height,
+                  p->dst_rect.start.x, p->dst_rect.start.y, dst_w, dst_h,
+                  p->src_rect.start.x / 2, p->src_rect.start.y, src_w / 2, src_h,
+                  p->texture_size.w, p->texture_size.h,
                   p->use_rectangle == 1, p->is_yuv,
                   p->mpi_flipped ^ p->vo_flipped);
         glEnable3DRight(gl, p->stereo_mode);
         glDrawTex(gl,
-                  p->dst_rect.x0, p->dst_rect.y0, dst_w, dst_h,
-                  p->src_rect.x0 / 2 + p->image_width / 2, p->src_rect.y0,
+                  p->dst_rect.start.x, p->dst_rect.start.x, dst_w, dst_h,
+                  p->src_rect.start.x / 2 + p->image_size.w / 2, p->src_rect.start.y,
                   src_w / 2, src_h,
-                  p->texture_width, p->texture_height,
+                  p->texture_size.w, p->texture_size.h,
                   p->use_rectangle == 1, p->is_yuv,
                   p->mpi_flipped ^ p->vo_flipped);
         glDisable3D(gl, p->stereo_mode);
     } else {
         glDrawTex(gl,
-                  p->dst_rect.x0, p->dst_rect.y0, dst_w, dst_h,
-                  p->src_rect.x0, p->src_rect.y0, src_w, src_h,
-                  p->texture_width, p->texture_height,
+                  p->dst_rect.start.x, p->dst_rect.start.y, dst_w, dst_h,
+                  p->src_rect.start.x, p->src_rect.start.y, src_w, src_h,
+                  p->texture_size.w, p->texture_size.h,
                   p->use_rectangle == 1, p->is_yuv,
                   p->mpi_flipped ^ p->vo_flipped);
     }
@@ -1796,8 +1791,9 @@ static void flip_page(struct vo *vo)
         gl->Finish();
     p->glctx->swapGlBuffers(p->glctx);
 
-    if (p->dst_rect.x0 > 0|| p->dst_rect.y0 > 0 ||
-        p->dst_rect.x1 < vo->dwidth || p->dst_rect.y1 < vo->dheight)
+    if (p->dst_rect.start.x > 0|| p->dst_rect.start.x > 0 ||
+        p->dst_rect.start.x + p->dst_rect.size.w < vo->dsize.w ||
+        p->dst_rect.start.y + p->dst_rect.size.h < vo->dsize.h)
     {
         gl->Clear(GL_COLOR_BUFFER_BIT);
     }
@@ -1817,17 +1813,16 @@ static bool get_image(struct vo *vo, mp_image_t *mpi, int *th, bool *cplane)
         p->err_shown = 1;
         return false;
     }
-    int width = mpi->w, height = mpi->h;
+    struct mp_size size = mpi->size;
     if (p->ati_hack) {
-        width = p->texture_width;
-        height = p->texture_height;
+        size = p->texture_size;
     }
     int avgbpp16 = 0;
     for (int pl = 0; pl < 4; pl++)
         avgbpp16 += (16 * mpi->fmt.bpp[pl]) >> mpi->fmt.xs[pl] >> mpi->fmt.ys[pl];
     int avgbpp = avgbpp16 / 16;
-    mpi->stride[0] = width * avgbpp / 8;
-    needed_size = mpi->stride[0] * height;
+    mpi->stride[0] = size.w * avgbpp / 8;
+    needed_size = mpi->stride[0] * size.h;
     if (!p->buffer)
         gl->GenBuffers(1, &p->buffer);
     gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, p->buffer);
@@ -1853,16 +1848,16 @@ static bool get_image(struct vo *vo, mp_image_t *mpi, int *th, bool *cplane)
         int xs = desc.chroma_xs, ys = desc.chroma_ys, depth = desc.plane_bits;
         int bp = (depth + 7) / 8;
         common_plane = true;
-        mpi->stride[0] = width * bp;
-        mpi->planes[1] = mpi->planes[0] + mpi->stride[0] * height;
-        mpi->stride[1] = (width >> xs) * bp;
-        mpi->planes[2] = mpi->planes[1] + mpi->stride[1] * (height >> ys);
-        mpi->stride[2] = (width >> xs) * bp;
+        mpi->stride[0] = size.w * bp;
+        mpi->planes[1] = mpi->planes[0] + mpi->stride[0] * size.h;
+        mpi->stride[1] = (size.w >> xs) * bp;
+        mpi->planes[2] = mpi->planes[1] + mpi->stride[1] * (size.h >> ys);
+        mpi->stride[2] = (size.w >> xs) * bp;
         if (p->ati_hack) {
             common_plane = false;
             if (!p->buffer_uv[0])
                 gl->GenBuffers(2, p->buffer_uv);
-            int buffer_size = mpi->stride[1] * height;
+            int buffer_size = mpi->stride[1] * size.h;
             if (buffer_size > p->buffersize_uv) {
                 gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, p->buffer_uv[0]);
                 gl->BufferData(GL_PIXEL_UNPACK_BUFFER, buffer_size, NULL,
@@ -1884,7 +1879,7 @@ static bool get_image(struct vo *vo, mp_image_t *mpi, int *th, bool *cplane)
             mpi->planes[2] = p->bufferptr_uv[1];
         }
     }
-    *th = height;
+    *th = size.h;
     *cplane = common_plane;
     return true;
 }
@@ -1915,8 +1910,8 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
     int stride[3];
     unsigned char *planes[3];
     mp_image_t mpi2 = *mpi;
-    int w = mpi->w, h = mpi->h;
-    int th = h;
+    struct mp_size size = mpi->size;
+    int th = size.h;
     bool common_plane = false;
     bool pbo = false;
     mpi2.flags = 0;
@@ -1926,25 +1921,25 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
         struct mp_imgfmt_desc desc = mp_imgfmt_get_desc(p->image_format);
         int bp = desc.bytes[0];
         int xs = desc.chroma_xs, ys = desc.chroma_ys, depth = desc.plane_bits;
-        memcpy_pic(mpi2.planes[0], mpi->planes[0], mpi->w * bp, mpi->h,
+        memcpy_pic(mpi2.planes[0], mpi->planes[0], mpi->size.w * bp, mpi->size.h,
                    mpi2.stride[0], mpi->stride[0]);
-        int uv_bytes = (mpi->w >> xs) * bp;
+        int uv_bytes = (mpi->size.w >> xs) * bp;
         if (p->is_yuv) {
-            memcpy_pic(mpi2.planes[1], mpi->planes[1], uv_bytes, mpi->h >> ys,
+            memcpy_pic(mpi2.planes[1], mpi->planes[1], uv_bytes, mpi->size.h >> ys,
                        mpi2.stride[1], mpi->stride[1]);
-            memcpy_pic(mpi2.planes[2], mpi->planes[2], uv_bytes, mpi->h >> ys,
+            memcpy_pic(mpi2.planes[2], mpi->planes[2], uv_bytes, mpi->size.h >> ys,
                        mpi2.stride[2], mpi->stride[2]);
         }
         if (p->ati_hack) {
             // since we have to do a full upload we need to clear the borders
-            clear_border(vo, mpi2.planes[0], mpi->w * bp, mpi2.stride[0],
-                         mpi->h, th, 0);
+            clear_border(vo, mpi2.planes[0], mpi->size.w * bp, mpi2.stride[0],
+                         mpi->size.h, th, 0);
             if (p->is_yuv) {
                 int clear = get_chroma_clear_val(depth);
                 clear_border(vo, mpi2.planes[1], uv_bytes, mpi2.stride[1],
-                             mpi->h >> ys, th >> ys, clear);
+                             mpi->size.h >> ys, th >> ys, clear);
                 clear_border(vo, mpi2.planes[2], uv_bytes, mpi2.stride[2],
-                             mpi->h >> ys, th >> ys, clear);
+                             mpi->size.h >> ys, th >> ys, clear);
             }
         }
         mpi = &mpi2;
@@ -1960,11 +1955,10 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
     if (pbo) {
         intptr_t base = (intptr_t)planes[0];
         if (p->ati_hack) {
-            w = p->texture_width;
-            h = p->texture_height;
+            size = p->texture_size;
         }
         if (p->mpi_flipped)
-            base += (mpi->h - 1) * stride[0];
+            base += (mpi->size.h - 1) * stride[0];
         planes[0] -= base;
         planes[1] -= base;
         planes[2] -= base;
@@ -1976,7 +1970,7 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
         slice = 0; // always "upload" full texture
     }
     glUploadTex(gl, p->target, p->gl_format, p->gl_type, planes[0],
-                stride[0], 0, 0, w, h, slice);
+                stride[0], 0, 0, size.w, size.h, slice);
     if (p->is_yuv) {
         struct mp_imgfmt_desc desc = mp_imgfmt_get_desc(p->image_format);
         int xs = desc.chroma_xs, ys = desc.chroma_ys;
@@ -1987,7 +1981,7 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
         }
         gl->ActiveTexture(GL_TEXTURE1);
         glUploadTex(gl, p->target, p->gl_format, p->gl_type, planes[1],
-                    stride[1], 0, 0, w >> xs, h >> ys, slice);
+                    stride[1], 0, 0, size.w >> xs, size.h >> ys, slice);
         if (pbo && !common_plane) {
             gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, p->buffer_uv[1]);
             gl->UnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
@@ -1995,7 +1989,7 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
         }
         gl->ActiveTexture(GL_TEXTURE2);
         glUploadTex(gl, p->target, p->gl_format, p->gl_type, planes[2],
-                    stride[2], 0, 0, w >> xs, h >> ys, slice);
+                    stride[2], 0, 0, size.w >> xs, size.h >> ys, slice);
         gl->ActiveTexture(GL_TEXTURE0);
     }
     if (pbo) {
@@ -2015,8 +2009,7 @@ static mp_image_t *get_screenshot(struct vo *vo)
     if (!vo->params)
         return NULL;
 
-    mp_image_t *image = mp_image_alloc(p->image_format, p->texture_width,
-                                                        p->texture_height);
+    mp_image_t *image = mp_image_alloc(p->image_format, p->texture_size);
     if (!image)
         return NULL;
 
@@ -2032,7 +2025,7 @@ static mp_image_t *get_screenshot(struct vo *vo)
                       image->stride[2]);
         gl->ActiveTexture(GL_TEXTURE0);
     }
-    mp_image_set_size(image, p->image_width, p->image_height);
+    mp_image_set_size(image, p->image_size);
     mp_image_set_attributes(image, vo->params);
 
     return image;
@@ -2113,7 +2106,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
     case VOCTRL_GET_PANSCAN:
         return VO_TRUE;
     case VOCTRL_SET_PANSCAN:
-        resize(vo, vo->dwidth, vo->dheight);
+        resize(vo, vo->dsize.w, vo->dsize.h);
         return VO_TRUE;
     case VOCTRL_GET_EQUALIZER:
         if (p->is_yuv) {
@@ -2158,7 +2151,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
     int events = 0;
     int r = p->glctx->vo_control(vo, &events, request, data);
     if (events & VO_EVENT_RESIZE)
-        resize(vo, vo->dwidth, vo->dheight);
+        resize(vo, vo->dsize.w, vo->dsize.h);
     if (events & VO_EVENT_EXPOSE)
         vo->want_redraw = true;
 

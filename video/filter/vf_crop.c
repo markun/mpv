@@ -31,47 +31,45 @@
 #include "options/m_option.h"
 
 static const struct vf_priv_s {
-    int crop_w,crop_h;
-    int crop_x,crop_y;
+    struct mp_extend crop;
 } vf_priv_dflt = {
-  -1,-1,
-  -1,-1
+    { { -1,-1 }, { -1,-1 } }
 };
 
 //===========================================================================//
 
 static int config(struct vf_instance *vf,
-        int width, int height, int d_width, int d_height,
+        struct mp_size size, struct mp_size dsize,
         unsigned int flags, unsigned int outfmt)
 {
+    struct mp_extend *crop = &vf->priv->crop;
     // calculate the missing parameters:
-    if(vf->priv->crop_w<=0 || vf->priv->crop_w>width) vf->priv->crop_w=width;
-    if(vf->priv->crop_h<=0 || vf->priv->crop_h>height) vf->priv->crop_h=height;
-    if(vf->priv->crop_x<0) vf->priv->crop_x=(width-vf->priv->crop_w)/2;
-    if(vf->priv->crop_y<0) vf->priv->crop_y=(height-vf->priv->crop_h)/2;
+    if(crop->size.w<=0 || crop->size.w>size.w) crop->size.w=size.w;
+    if(crop->size.h<=0 || crop->size.h>size.h) crop->size.h=size.h;
+    if(crop->start.x<0) crop->start.x=(size.w-crop->size.w)/2;
+    if(crop->start.y<0) crop->start.y=(size.h-crop->size.h)/2;
     // rounding:
 
     struct mp_imgfmt_desc fmt = mp_imgfmt_get_desc(outfmt);
 
-    vf->priv->crop_x = MP_ALIGN_DOWN(vf->priv->crop_x, fmt.align_x);
-    vf->priv->crop_y = MP_ALIGN_DOWN(vf->priv->crop_y, fmt.align_y);
+    crop->start.x = MP_ALIGN_DOWN(crop->start.x, fmt.align_x);
+    crop->start.y = MP_ALIGN_DOWN(crop->start.y, fmt.align_y);
 
     // check:
-    if(vf->priv->crop_w+vf->priv->crop_x>width ||
-       vf->priv->crop_h+vf->priv->crop_y>height){
-        MP_WARN(vf, "[CROP] Bad position/width/height - cropped area outside of the original!\n");
+    if(crop->size.w+crop->start.x>size.w ||
+       crop->size.h+crop->start.y>size.h){
+        MP_WARN(vf, "[CROP] Bad position/size.w/size.h - cropped area outside of the original!\n");
         return 0;
     }
-    vf_rescale_dsize(&d_width, &d_height, width, height,
-                     vf->priv->crop_w, vf->priv->crop_h);
-    return vf_next_config(vf,vf->priv->crop_w,vf->priv->crop_h,d_width,d_height,flags,outfmt);
+    vf_rescale_dsize(&dsize, size, crop->size);
+    return vf_next_config(vf,crop->size,dsize,flags,outfmt);
 }
 
 static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
 {
-    mp_image_crop(mpi, vf->priv->crop_x, vf->priv->crop_y,
-                  vf->priv->crop_x + vf->priv->crop_w,
-                  vf->priv->crop_y + vf->priv->crop_h);
+    mp_image_crop(mpi, vf->priv->crop.start.x, vf->priv->crop.start.y,
+                  vf->priv->crop.start.x + vf->priv->crop.size.w,
+                  vf->priv->crop.start.y + vf->priv->crop.size.h);
     return mpi;
 }
 
@@ -87,19 +85,19 @@ static int vf_open(vf_instance_t *vf){
     vf->filter=filter;
     vf->query_format=query_format;
     MP_INFO(vf, "Crop: %d x %d, %d ; %d\n",
-    vf->priv->crop_w,
-    vf->priv->crop_h,
-    vf->priv->crop_x,
-    vf->priv->crop_y);
+    vf->priv->crop.size.w,
+    vf->priv->crop.size.h,
+    vf->priv->crop.start.x,
+    vf->priv->crop.start.y);
     return 1;
 }
 
 #define OPT_BASE_STRUCT struct vf_priv_s
 static const m_option_t vf_opts_fields[] = {
-    OPT_INT("w", crop_w, M_OPT_MIN, .min = 0),
-    OPT_INT("h", crop_h, M_OPT_MIN, .min = 0),
-    OPT_INT("x", crop_x, M_OPT_MIN, .min = -1),
-    OPT_INT("y", crop_y, M_OPT_MIN, .min = -1),
+    OPT_INT("w", crop.size.w, M_OPT_MIN, .min = 0),
+    OPT_INT("h", crop.size.h, M_OPT_MIN, .min = 0),
+    OPT_INT("x", crop.start.x, M_OPT_MIN, .min = -1),
+    OPT_INT("y", crop.start.y, M_OPT_MIN, .min = -1),
     {0}
 };
 

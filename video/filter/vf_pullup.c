@@ -42,7 +42,7 @@ struct vf_priv_s {
         int fakecount;
         char *qbuf;
         double lastpts;
-        int junk_left, junk_right, junk_top, junk_bottom;
+        struct mp_margin junk;
         int strict_breaks, metric_plane;
         struct vf_lw_opts *lw_opts;
 };
@@ -57,10 +57,7 @@ static void reset(struct vf_instance *vf)
     struct pullup_context *c;
     vf->priv->ctx = c = pullup_alloc_context();
     vf->priv->fakecount = 1;
-    c->junk_left = vf->priv->junk_left;
-    c->junk_right = vf->priv->junk_right;
-    c->junk_top = vf->priv->junk_top;
-    c->junk_bottom = vf->priv->junk_bottom;
+    c->junk = vf->priv->junk;
     c->strict_breaks = vf->priv->strict_breaks;
     c->metric_plane = vf->priv->metric_plane;
 }
@@ -73,14 +70,14 @@ static void init_pullup(struct vf_instance *vf, mp_image_t *mpi)
                 c->nplanes = 4;
                 pullup_preinit_context(c);
                 c->bpp[0] = c->bpp[1] = c->bpp[2] = 8;
-                c->w[0] = mpi->w;
-                c->h[0] = mpi->h;
-                c->w[1] = c->w[2] = mpi->chroma_width;
-                c->h[1] = c->h[2] = mpi->chroma_height;
-                c->w[3] = ((mpi->w+15)/16) * ((mpi->h+15)/16);
+                c->w[0] = mpi->size.w;
+                c->h[0] = mpi->size.h;
+                c->w[1] = c->w[2] = mpi->chroma_size.w;
+                c->h[1] = c->h[2] = mpi->chroma_size.h;
+                c->w[3] = ((mpi->size.w+15)/16) * ((mpi->size.h+15)/16);
                 c->h[3] = 2;
-                c->stride[0] = mpi->w;
-                c->stride[1] = c->stride[2] = mpi->chroma_width;
+                c->stride[0] = mpi->size.w;
+                c->stride[1] = c->stride[2] = mpi->chroma_size.w;
                 c->stride[3] = c->w[3];
                 c->background[1] = c->background[2] = 128;
 
@@ -110,13 +107,13 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
                         pullup_release_frame(f);
                         goto skip;
                 }
-                memcpy_pic(b->planes[0], mpi->planes[0], mpi->w, mpi->h,
+                memcpy_pic(b->planes[0], mpi->planes[0], mpi->size.w, mpi->size.h,
                         c->stride[0], mpi->stride[0]);
                         memcpy_pic(b->planes[1], mpi->planes[1],
-                                mpi->chroma_width, mpi->chroma_height,
+                                mpi->chroma_size.w, mpi->chroma_size.h,
                                 c->stride[1], mpi->stride[1]);
                         memcpy_pic(b->planes[2], mpi->planes[2],
-                                mpi->chroma_width, mpi->chroma_height,
+                                mpi->chroma_size.w, mpi->chroma_size.h,
                                 c->stride[2], mpi->stride[2]);
         }
         if (mpi->qscale) {
@@ -246,12 +243,12 @@ static int query_format(struct vf_instance *vf, unsigned int fmt)
 }
 
 static int config(struct vf_instance *vf,
-        int width, int height, int d_width, int d_height,
+        struct mp_size size, struct mp_size dsize,
         unsigned int flags, unsigned int outfmt)
 {
         reset(vf);
-        if (height&3) return 0;
-        return vf_next_config(vf, width, height, d_width, d_height, flags, outfmt);
+        if (size.h&3) return 0;
+        return vf_next_config(vf, size, dsize, flags, outfmt);
 }
 
 static void uninit(struct vf_instance *vf)
@@ -279,7 +276,7 @@ static int vf_open(vf_instance_t *vf)
         struct vf_priv_s *p = vf->priv;
         const char *pname[3] = {"y", "u", "v"};
         if (vf_lw_set_graph(vf, p->lw_opts, "pullup", "%d:%d:%d:%d:%d:%s",
-                            p->junk_left, p->junk_right, p->junk_top, p->junk_bottom,
+                            p->junk.l, p->junk.r, p->junk.t, p->junk.b,
                             p->strict_breaks, pname[p->metric_plane]) >= 0)
         {
             return 1;
@@ -295,16 +292,13 @@ const vf_info_t vf_info_pullup = {
     .open = vf_open,
     .priv_size = sizeof(struct vf_priv_s),
     .priv_defaults = &(const struct vf_priv_s){
-        .junk_left = 1,
-        .junk_right = 1,
-        .junk_top = 4,
-        .junk_bottom = 4,
+        .junk = { 1, 1, 4, 4 },
     },
     .options = (const struct m_option[]){
-        OPT_INT("jl", junk_left, 0),
-        OPT_INT("jr", junk_right, 0),
-        OPT_INT("jt", junk_top, 0),
-        OPT_INT("jb", junk_bottom, 0),
+        OPT_INT("jl", junk.l, 0),
+        OPT_INT("jr", junk.r, 0),
+        OPT_INT("jt", junk.t, 0),
+        OPT_INT("jb", junk.b, 0),
         OPT_INT("sb", strict_breaks, 0),
         OPT_CHOICE("mp", metric_plane, 0, ({"y", 0}, {"u", 1}, {"v", 2})),
         OPT_SUBSTRUCT("", lw_opts, vf_lw_conf, 0),

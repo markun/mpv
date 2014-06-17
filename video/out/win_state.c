@@ -69,7 +69,7 @@ static void apply_autofit(int *w, int *h, int scr_w, int scr_h,
 //       geometry additional to this code. This is to deal with initial window
 //       placement, fullscreen handling, avoiding resize on reconfig() with no
 //       size change, multi-monitor stuff, and possibly more.
-void vo_calc_window_geometry(struct vo *vo, const struct mp_rect *screen,
+void vo_calc_window_geometry(struct vo *vo, const struct mp_extend *screen,
                              struct vo_win_geometry *out_geo)
 {
     struct mp_vo_opts *opts = vo->opts;
@@ -79,17 +79,17 @@ void vo_calc_window_geometry(struct vo *vo, const struct mp_rect *screen,
     // The case of calling this function even though no video was configured
     // yet (i.e. vo->params==NULL) happens when vo_opengl creates a hidden
     // window in order to create an OpenGL context.
-    struct mp_image_params params = { .d_w = 320, .d_h = 200 };
+    struct mp_image_params params = { .dsize = {320, 200} };
     if (vo->params)
         params = *vo->params;
 
-    int d_w = params.d_w;
-    int d_h = params.d_h;
+    int d_w = params.dsize.w;
+    int d_h = params.dsize.h;
     if ((vo->driver->caps & VO_CAP_ROTATE90) && params.rotate % 180 == 90)
         MPSWAP(int, d_w, d_h);
 
-    int scr_w = screen->x1 - screen->x0;
-    int scr_h = screen->y1 - screen->y0;
+    int scr_w = screen->size.w;
+    int scr_h = screen->size.h;
 
     MP_DBG(vo, "screen size: %dx%d\n", scr_w, scr_h);
 
@@ -98,15 +98,15 @@ void vo_calc_window_geometry(struct vo *vo, const struct mp_rect *screen,
     apply_autofit(&d_w, &d_h, scr_w, scr_h, &opts->autofit, true);
     apply_autofit(&d_w, &d_h, scr_w, scr_h, &opts->autofit_larger, false);
 
-    out_geo->win.x0 = (int)(scr_w - d_w) / 2;
-    out_geo->win.y0 = (int)(scr_h - d_h) / 2;
-    m_geometry_apply(&out_geo->win.x0, &out_geo->win.y0, &d_w, &d_h,
+    out_geo->win.start.x = (int)(scr_w - d_w) / 2;
+    out_geo->win.start.y = (int)(scr_h - d_h) / 2;
+    m_geometry_apply(&out_geo->win.start.x, &out_geo->win.start.y, &d_w, &d_h,
                      scr_w, scr_h, &opts->geometry);
 
-    out_geo->win.x0 += screen->x0;
-    out_geo->win.y0 += screen->y0;
-    out_geo->win.x1 = out_geo->win.x0 + d_w;
-    out_geo->win.y1 = out_geo->win.y0 + d_h;
+    out_geo->win.start.x += screen->start.x;
+    out_geo->win.start.y += screen->start.y;
+    out_geo->win.size.w = d_w;
+    out_geo->win.size.h = d_h;
 
     if (opts->geometry.xy_valid || opts->force_window_position)
         out_geo->flags |= VO_WIN_FORCE_POS;
@@ -117,7 +117,6 @@ void vo_calc_window_geometry(struct vo *vo, const struct mp_rect *screen,
 //  to ensure that the VO reinitializes rendering properly.)
 void vo_apply_window_geometry(struct vo *vo, const struct vo_win_geometry *geo)
 {
-    vo->dwidth = geo->win.x1 - geo->win.x0;
-    vo->dheight = geo->win.y1 - geo->win.y0;
+    vo->dsize = geo->win.size;
     vo->monitor_par = geo->monitor_par;
 }

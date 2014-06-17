@@ -75,79 +75,85 @@ static void clamp_size(int size, int *start, int *end)
 static void src_dst_split_scaling(int src_size, int dst_size,
                                   int scaled_src_size, bool unscaled,
                                   float zoom, float align, float pan,
-                                  int *src_start, int *src_end,
-                                  int *dst_start, int *dst_end,
+                                  int *src_start, int *src_length,
+                                  int *dst_start, int *dst_length,
                                   int *osd_margin_a, int *osd_margin_b)
 {
+    int src_end, dst_end;
+
     if (unscaled) {
         scaled_src_size = src_size;
-        zoom = 0.0;
+    }
+    else {
+        scaled_src_size += zoom * scaled_src_size;
     }
 
-    scaled_src_size += zoom * scaled_src_size;
     align = (align + 1) / 2;
 
     *src_start = 0;
-    *src_end = src_size;
+    src_end = src_size;
     *dst_start = (dst_size - scaled_src_size) * align + pan * scaled_src_size;
-    *dst_end = *dst_start + scaled_src_size;
+    dst_end = *dst_start + scaled_src_size;
 
     // Distance of screen frame to video
     *osd_margin_a = *dst_start;
-    *osd_margin_b = dst_size - *dst_end;
+    *osd_margin_b = dst_size - dst_end;
 
     // Clip to screen
-    int s_src = *src_end - *src_start;
-    int s_dst = *dst_end - *dst_start;
+    int s_src = src_end - *src_start;
+    int s_dst = dst_end - *dst_start;
     if (*dst_start < 0) {
         int border = -(*dst_start) * s_src / s_dst;
         *src_start += VID_SRC_ROUND_UP(border);
         *dst_start = 0;
     }
-    if (*dst_end > dst_size) {
-        int border = (*dst_end - dst_size) * s_src / s_dst;
-        *src_end -= VID_SRC_ROUND_UP(border);
-        *dst_end = dst_size;
+    if (dst_end > dst_size) {
+        int border = (dst_end - dst_size) * s_src / s_dst;
+        src_end -= VID_SRC_ROUND_UP(border);
+        dst_end = dst_size;
     }
 
     if (unscaled) {
         // Force unscaled by reducing the range for src or dst
-        int src_s = *src_end - *src_start;
-        int dst_s = *dst_end - *dst_start;
+        int src_s = src_end - *src_start;
+        int dst_s = dst_end - *dst_start;
         if (src_s > dst_s) {
-            *src_end = *src_start + dst_s;
+            src_end = *src_start + dst_s;
         } else if (src_s < dst_s) {
-            *dst_end = *dst_start + src_s;
+            dst_end = *dst_start + src_s;
         }
     }
 
     // For sanity: avoid bothering VOs with corner cases
-    clamp_size(src_size, src_start, src_end);
-    clamp_size(dst_size, dst_start, dst_end);
+    clamp_size(src_size, src_start, &src_end);
+    clamp_size(dst_size, dst_start, &dst_end);
+
+    *src_length = src_end - *src_start;
+    *dst_length = dst_end - *dst_start;
 }
 
 void mp_get_src_dst_rects(struct mp_log *log, struct mp_vo_opts *opts,
                           int vo_caps, struct mp_image_params *video,
                           int window_w, int window_h, double monitor_par,
-                          struct mp_rect *out_src,
-                          struct mp_rect *out_dst,
+                          struct mp_extend *out_src,
+                          struct mp_extend *out_dst,
                           struct mp_osd_res *out_osd)
 {
-    int src_w = video->w;
-    int src_h = video->h;
-    int src_dw = video->d_w;
-    int src_dh = video->d_h;
+    int src_w = video->size.w;
+    int src_h = video->size.h;
+    int src_dw = video->dsize.w;
+    int src_dh = video->dsize.h;
     if (video->rotate % 180 == 90 && (vo_caps & VO_CAP_ROTATE90)) {
         MPSWAP(int, src_w, src_h);
         MPSWAP(int, src_dw, src_dh);
     }
     window_w = MPMAX(1, window_w);
     window_h = MPMAX(1, window_h);
-    struct mp_rect dst = {0, 0, window_w, window_h};
-    struct mp_rect src = {0, 0, src_w,    src_h};
+    struct mp_size window_size = { window_w, window_h };
+    struct mp_extend dst = { .size = window_size };
+    struct mp_extend src = { .size = { src_w, src_h } };
     struct mp_osd_res osd = {
-        .w = window_w,
-        .h = window_h,
+        .size = window_size,
         .display_par = monitor_par,
     };
     if (opts->keepaspect) {
@@ -157,31 +163,28 @@ void mp_get_src_dst_rects(struct mp_log *log, struct mp_vo_opts *opts,
                             &scaled_width, &scaled_height);
         src_dst_split_scaling(src_w, window_w, scaled_width, opts->unscaled,
                               opts->zoom, opts->align_x, opts->pan_x,
-                              &src.x0, &src.x1, &dst.x0, &dst.x1,
-                              &osd.ml, &osd.mr);
+                              &src.start.x, &src.size.w, &dst.start.x, &dst.size.w,
+                              &osd.margin.l, &osd.margin.r);
         src_dst_split_scaling(src_h, window_h, scaled_height, opts->unscaled,
                               opts->zoom, opts->align_y, opts->pan_y,
-                              &src.y0, &src.y1, &dst.y0, &dst.y1,
-                              &osd.mt, &osd.mb);
+                              &src.start.y, &src.size.h, &dst.start.y, &dst.size.h,
+                              &osd.margin.t, &osd.margin.b);
     }
 
     *out_src = src;
     *out_dst = dst;
     *out_osd = osd;
 
-    int sw = src.x1 - src.x0, sh = src.y1 - src.y0;
-    int dw = dst.x1 - dst.x0, dh = dst.y1 - dst.y0;
-
     mp_verbose(log, "Window size: %dx%d\n",
                window_w, window_h);
     mp_verbose(log, "Video source: %dx%d (%dx%d)\n",
-               video->w, video->h, video->d_w, video->d_h);
+               video->size.w, video->size.h, video->dsize.w, video->dsize.h);
     mp_verbose(log, "Video display: (%d, %d) %dx%d -> (%d, %d) %dx%d\n",
-               src.x0, src.y0, sw, sh, dst.x0, dst.y0, dw, dh);
+               src.start.x, src.start.y, src.size.w, src.size.h, dst.start.x, dst.start.y, dst.size.w, dst.size.h);
     mp_verbose(log, "Video scale: %f/%f\n",
-               (double)dw / sw, (double)dh / sh);
+               (double)dst.size.w / src.size.w, (double)dst.size.h / src.size.h);
     mp_verbose(log, "OSD borders: l=%d t=%d r=%d b=%d\n",
-               osd.ml, osd.mt, osd.mr, osd.mb);
+               osd.margin.l, osd.margin.t, osd.margin.r, osd.margin.b);
     mp_verbose(log, "Video borders: l=%d t=%d r=%d b=%d\n",
-               dst.x0, dst.y0, window_w - dst.x1, window_h - dst.y1);
+               dst.start.x, dst.start.y, dst.size.w, dst.size.h);
 }

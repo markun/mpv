@@ -131,8 +131,8 @@ static bool mp_image_alloc_planes(struct mp_image *mpi)
 
     size_t plane_size[MP_MAX_PLANES];
     for (int n = 0; n < MP_MAX_PLANES; n++) {
-        int alloc_h = MP_ALIGN_UP(mpi->h, 32) >> mpi->fmt.ys[n];
-        int line_bytes = (mpi->plane_w[n] * mpi->fmt.bpp[n] + 7) / 8;
+        int alloc_h = MP_ALIGN_UP(mpi->size.h, 32) >> mpi->fmt.ys[n];
+        int line_bytes = (mpi->plane_size[n].w * mpi->fmt.bpp[n] + 7) / 8;
         mpi->stride[n] = FFALIGN(line_bytes, SWS_MIN_BYTE_ALIGN);
         plane_size[n] = mpi->stride[n] * alloc_h;
     }
@@ -161,10 +161,10 @@ void mp_image_setfmt(struct mp_image *mpi, int out_fmt)
     mpi->fmt = fmt;
     mpi->flags = fmt.flags;
     mpi->imgfmt = fmt.id;
-    mpi->chroma_x_shift = fmt.chroma_xs;
-    mpi->chroma_y_shift = fmt.chroma_ys;
+    mpi->chroma_shift.x = fmt.chroma_xs;
+    mpi->chroma_shift.y = fmt.chroma_ys;
     mpi->num_planes = fmt.num_planes;
-    mp_image_set_size(mpi, mpi->w, mpi->h);
+    mp_image_set_size(mpi, mpi->size);
 }
 
 static void mp_image_destructor(void *ptr)
@@ -179,17 +179,15 @@ static int mp_chroma_div_up(int size, int shift)
 }
 
 // Caller has to make sure this doesn't exceed the allocated plane data/strides.
-void mp_image_set_size(struct mp_image *mpi, int w, int h)
+void mp_image_set_size(struct mp_image *mpi, struct mp_size size)
 {
-    assert(w >= 0 && h >= 0);
-    mpi->w = mpi->params.w = mpi->params.d_w = w;
-    mpi->h = mpi->params.h = mpi->params.d_h = h;
+    assert(size.w >= 0 && size.h >= 0);
+    mpi->size = mpi->params.size = mpi->params.dsize = size;
     for (int n = 0; n < mpi->num_planes; n++) {
-        mpi->plane_w[n] = mp_chroma_div_up(mpi->w, mpi->fmt.xs[n]);
-        mpi->plane_h[n] = mp_chroma_div_up(mpi->h, mpi->fmt.ys[n]);
+        mpi->plane_size[n].w = mp_chroma_div_up(mpi->size.w, mpi->fmt.xs[n]);
+        mpi->plane_size[n].h = mp_chroma_div_up(mpi->size.h, mpi->fmt.ys[n]);
     }
-    mpi->chroma_width = mpi->plane_w[1];
-    mpi->chroma_height = mpi->plane_h[1];
+    mpi->chroma_size = mpi->plane_size[1];
 }
 
 void mp_image_set_params(struct mp_image *image,
@@ -197,17 +195,17 @@ void mp_image_set_params(struct mp_image *image,
 {
     // possibly initialize other stuff
     mp_image_setfmt(image, params->imgfmt);
-    mp_image_set_size(image, params->w, params->h);
+    mp_image_set_size(image, params->size);
     image->params = *params;
 }
 
-struct mp_image *mp_image_alloc(int imgfmt, int w, int h)
+struct mp_image *mp_image_alloc(int imgfmt, struct mp_size size)
 {
     struct mp_image *mpi = talloc_zero(NULL, struct mp_image);
     talloc_set_destructor(mpi, mp_image_destructor);
     mpi->refcount = m_refcount_new();
 
-    mp_image_set_size(mpi, w, h);
+    mp_image_set_size(mpi, size);
     mp_image_setfmt(mpi, imgfmt);
     if (!mp_image_alloc_planes(mpi)) {
         talloc_free(mpi);
@@ -220,7 +218,7 @@ struct mp_image *mp_image_alloc(int imgfmt, int w, int h)
 
 struct mp_image *mp_image_new_copy(struct mp_image *img)
 {
-    struct mp_image *new = mp_image_alloc(img->imgfmt, img->w, img->h);
+    struct mp_image *new = mp_image_alloc(img->imgfmt, img->size);
     if (!new)
         return NULL;
     mp_image_copy(new, img);
@@ -239,7 +237,7 @@ struct mp_image *mp_image_new_copy(struct mp_image *img)
 // Only works with ref-counted images, and can't change image size/format.
 void mp_image_steal_data(struct mp_image *dst, struct mp_image *src)
 {
-    assert(dst->imgfmt == src->imgfmt && dst->w == src->w && dst->h == src->h);
+    assert(dst->imgfmt == src->imgfmt && mp_size_equals(&dst->size, &src->size));
     assert(dst->refcount && src->refcount);
 
     for (int p = 0; p < MP_MAX_PLANES; p++) {
@@ -347,11 +345,11 @@ void mp_image_unrefp(struct mp_image **p_img)
 void mp_image_copy(struct mp_image *dst, struct mp_image *src)
 {
     assert(dst->imgfmt == src->imgfmt);
-    assert(dst->w == src->w && dst->h == src->h);
+    assert(dst->size.w == src->size.w && dst->size.h == src->size.h);
     assert(mp_image_is_writeable(dst));
     for (int n = 0; n < dst->num_planes; n++) {
-        int line_bytes = (dst->plane_w[n] * dst->fmt.bpp[n] + 7) / 8;
-        memcpy_pic(dst->planes[n], src->planes[n], line_bytes, dst->plane_h[n],
+        int line_bytes = (dst->plane_size[n].w * dst->fmt.bpp[n] + 7) / 8;
+        memcpy_pic(dst->planes[n], src->planes[n], line_bytes, dst->plane_size[n].h,
                    dst->stride[n], src->stride[n]);
     }
     if (dst->fmt.flags & MP_IMGFLAG_PAL)
@@ -364,9 +362,8 @@ void mp_image_copy_attributes(struct mp_image *dst, struct mp_image *src)
     dst->fields = src->fields;
     dst->qscale_type = src->qscale_type;
     dst->pts = src->pts;
-    if (dst->w == src->w && dst->h == src->h) {
-        dst->params.d_w = src->params.d_w;
-        dst->params.d_h = src->params.d_h;
+    if (mp_size_equals(&dst->size, &src->size)) {
+        dst->params.dsize = src->params.dsize;
     }
     if ((dst->flags & MP_IMGFLAG_YUV) == (src->flags & MP_IMGFLAG_YUV)) {
         dst->params.colorspace = src->params.colorspace;
@@ -379,26 +376,35 @@ void mp_image_copy_attributes(struct mp_image *dst, struct mp_image *src)
     }
 }
 
-// Crop the given image to (x0, y0)-(x1, y1) (bottom/right border exclusive)
-// x0/y0 must be naturally aligned.
-void mp_image_crop(struct mp_image *img, int x0, int y0, int x1, int y1)
+// Crop the given image to w-h (bottom/right border exclusive)
+// x/y must be naturally aligned.
+void mp_image_crop_rel(struct mp_image *img, int x, int y, int w, int h)
 {
-    assert(x0 >= 0 && y0 >= 0);
-    assert(x0 <= x1 && y0 <= y1);
-    assert(x1 <= img->w && y1 <= img->h);
-    assert(!(x0 & (img->fmt.align_x - 1)));
-    assert(!(y0 & (img->fmt.align_y - 1)));
+    assert(x >= 0 && y >= 0);
+    assert(w >= 0 && h >= 0);
+    assert(x + w <= img->size.w && y + h <= img->size.h);
+    assert(!(x & (img->fmt.align_x - 1)));
+    assert(!(y & (img->fmt.align_y - 1)));
 
     for (int p = 0; p < img->num_planes; ++p) {
-        img->planes[p] += (y0 >> img->fmt.ys[p]) * img->stride[p] +
-                          (x0 >> img->fmt.xs[p]) * img->fmt.bpp[p] / 8;
+        img->planes[p] += (y >> img->fmt.ys[p]) * img->stride[p] +
+                          (x >> img->fmt.xs[p]) * img->fmt.bpp[p] / 8;
     }
-    mp_image_set_size(img, x1 - x0, y1 - y0);
+    mp_image_set_size(img, (struct mp_size){ w, h });
+}
+
+void mp_image_crop(struct mp_image *img, int x0, int y0, int x1, int y1) {
+    mp_image_crop_rel(img, x0, y0, x1 - x0, y1 - y0);
 }
 
 void mp_image_crop_rc(struct mp_image *img, struct mp_rect rc)
 {
-    mp_image_crop(img, rc.x0, rc.y0, rc.x1, rc.y1);
+    mp_image_crop(img, rc.start.x, rc.start.y, rc.end.x, rc.end.y);
+}
+
+void mp_image_crop_ext(struct mp_image *img, struct mp_extend ext)
+{
+    mp_image_crop(img, ext.start.x, ext.start.y, ext.size.w, ext.size.h);
 }
 
 // Bottom/right border is allowed not to be aligned, but it might implicitly
@@ -407,7 +413,7 @@ void mp_image_clear(struct mp_image *img, int x0, int y0, int x1, int y1)
 {
     assert(x0 >= 0 && y0 >= 0);
     assert(x0 <= x1 && y0 <= y1);
-    assert(x1 <= img->w && y1 <= img->h);
+    assert(x1 <= img->size.w && y1 <= img->size.h);
     assert(!(x0 & (img->fmt.align_x - 1)));
     assert(!(y0 & (img->fmt.align_y - 1)));
 
@@ -432,21 +438,25 @@ void mp_image_clear(struct mp_image *img, int x0, int y0, int x1, int y1)
 
     for (int p = 0; p < area.num_planes; p++) {
         int bpp = area.fmt.bpp[p];
-        int bytes = (area.plane_w[p] * bpp + 7) / 8;
+        int bytes = (area.plane_size[p].w * bpp + 7) / 8;
         if (bpp <= 8) {
             memset_pic(area.planes[p], plane_clear[p], bytes,
-                       area.plane_h[p], area.stride[p]);
+                       area.plane_size[p].h, area.stride[p]);
         } else {
             memset16_pic(area.planes[p], plane_clear[p], (bytes + 1) / 2,
-                         area.plane_h[p], area.stride[p]);
+                         area.plane_size[p].h, area.stride[p]);
         }
     }
+}
+
+void mp_image_clear_rc(struct mp_image *img, struct mp_rect rc) {
+    mp_image_clear(img, rc.start.x, rc.start.y, rc.end.x, rc.end.y);
 }
 
 void mp_image_vflip(struct mp_image *img)
 {
     for (int p = 0; p < img->num_planes; p++) {
-        img->planes[p] = img->planes[p] + img->stride[p] * (img->plane_h[p] - 1);
+        img->planes[p] = img->planes[p] + img->stride[p] * (img->plane_size[p].h - 1);
         img->stride[p] = -img->stride[p];
     }
 }
@@ -461,10 +471,10 @@ bool mp_image_params_valid(const struct mp_image_params *p)
     // images don't crash with libswscale or when wrapping with AVFrame and
     // passing the result to filters.
     // Unlike FFmpeg, consider 0x0 valid (might be needed for OSD/screenshots).
-    if (p->w < 0 || p->h < 0 || (p->w + 128LL) * (p->h + 128LL) >= INT_MAX / 8)
+    if (p->size.w < 0 || p->size.h < 0 || (p->size.w + 128LL) * (p->size.h + 128LL) >= INT_MAX / 8)
         return false;
 
-    if (p->d_w < 0 || p->d_h < 0)
+    if (p->dsize.w < 0 || p->dsize.h < 0)
         return false;
 
     if (p->rotate < 0 || p->rotate >= 360)
@@ -481,8 +491,8 @@ bool mp_image_params_equal(const struct mp_image_params *p1,
                            const struct mp_image_params *p2)
 {
     return p1->imgfmt == p2->imgfmt &&
-           p1->w == p2->w && p1->h == p2->h &&
-           p1->d_w == p2->d_w && p1->d_h == p2->d_h &&
+           mp_size_equals(&p1->size, &p2->size) &&
+           mp_size_equals(&p1->dsize, &p2->dsize) &&
            p1->colorspace == p2->colorspace &&
            p1->colorlevels == p2->colorlevels &&
            p1->outputlevels == p2->outputlevels &&
@@ -497,14 +507,12 @@ void mp_image_set_attributes(struct mp_image *image,
 {
     struct mp_image_params nparams = *params;
     nparams.imgfmt = image->imgfmt;
-    nparams.w = image->w;
-    nparams.h = image->h;
+    nparams.size = image->size;
     if (nparams.imgfmt != params->imgfmt)
         mp_image_params_guess_csp(&nparams);
-    if (nparams.w != params->w || nparams.h != params->h) {
-        if (nparams.d_w && nparams.d_h) {
-            vf_rescale_dsize(&nparams.d_w, &nparams.d_h,
-                             params->w, params->h, nparams.w, nparams.h);
+    if (nparams.size.w != params->size.w || nparams.size.h != params->size.h) {
+        if (nparams.dsize.w && nparams.dsize.h) {
+            vf_rescale_dsize(&nparams.dsize, params->size, nparams.size);
         }
     }
     mp_image_set_params(image, &nparams);
@@ -529,7 +537,7 @@ void mp_image_params_guess_csp(struct mp_image_params *params)
             params->colorspace = MP_CSP_AUTO;
         }
         if (params->colorspace == MP_CSP_AUTO)
-            params->colorspace = mp_csp_guess_colorspace(params->w, params->h);
+            params->colorspace = mp_csp_guess_colorspace(params->size.w, params->size.h);
         if (params->colorlevels == MP_CSP_LEVELS_AUTO)
             params->colorlevels = MP_CSP_LEVELS_TV;
     } else if (fmt.flags & MP_IMGFLAG_RGB) {
@@ -551,7 +559,7 @@ void mp_image_copy_fields_from_av_frame(struct mp_image *dst,
                                         struct AVFrame *src)
 {
     mp_image_setfmt(dst, pixfmt2imgfmt(src->format));
-    mp_image_set_size(dst, src->width, src->height);
+    mp_image_set_size(dst, (struct mp_size){ src->width, src->height });
 
     for (int i = 0; i < 4; i++) {
         dst->planes[i] = src->data[i];
@@ -582,8 +590,8 @@ void mp_image_copy_fields_to_av_frame(struct AVFrame *dst,
                                       struct mp_image *src)
 {
     dst->format = imgfmt2pixfmt(src->imgfmt);
-    dst->width = src->w;
-    dst->height = src->h;
+    dst->width = src->size.w;
+    dst->height = src->size.h;
 
     for (int i = 0; i < 4; i++) {
         dst->data[i] = src->planes[i];
@@ -661,7 +669,7 @@ struct AVFrame *mp_image_to_av_frame_and_unref(struct mp_image *img)
         if (!dummy_ref)
             abort(); // out of memory (for the ref, not real image data)
         void *ptr = new_ref->planes[n];
-        size_t size = new_ref->stride[n] * new_ref->h;
+        size_t size = new_ref->stride[n] * new_ref->size.h;
         frame->buf[n] = av_buffer_create(ptr, size, free_img, dummy_ref, flags);
     }
     talloc_free(new_ref);

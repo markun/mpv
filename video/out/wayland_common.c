@@ -337,11 +337,11 @@ static void pointer_handle_motion(void *data,
     struct vo_wayland_state *wl = data;
 
     wl->cursor.pointer = pointer;
-    wl->window.mouse_x = wl_fixed_to_int(sx_w);
-    wl->window.mouse_y = wl_fixed_to_int(sy_w);
+    wl->window.mouse_pos.x = wl_fixed_to_int(sx_w);
+    wl->window.mouse_pos.y = wl_fixed_to_int(sy_w);
 
-    vo_mouse_movement(wl->vo, wl->window.mouse_x,
-                              wl->window.mouse_y);
+    vo_mouse_movement(wl->vo, wl->window.mouse_pos.x,
+                              wl->window.mouse_pos.y);
 }
 
 static void pointer_handle_button(void *data,
@@ -357,7 +357,7 @@ static void pointer_handle_button(void *data,
                     ((state == WL_POINTER_BUTTON_STATE_PRESSED)
                     ? MP_KEY_STATE_DOWN : MP_KEY_STATE_UP));
 
-    if (!mp_input_test_dragging(wl->vo->input_ctx, wl->window.mouse_x, wl->window.mouse_y) &&
+    if (!mp_input_test_dragging(wl->vo->input_ctx, wl->window.mouse_pos.x, wl->window.mouse_pos.y) &&
         (button == BTN_LEFT) && (state == WL_POINTER_BUTTON_STATE_PRESSED))
         wl_shell_surface_move(wl->window.shell_surface, wl->input.seat, serial);
 }
@@ -682,22 +682,20 @@ static void schedule_resize(struct vo_wayland_state *wl,
     }
 
     if (edges & WL_SHELL_SURFACE_RESIZE_LEFT)
-        x = wl->window.width - width;
+        x = wl->window.size.w - width;
     else
         x = 0;
 
     if (edges & WL_SHELL_SURFACE_RESIZE_TOP)
-        y = wl->window.height - height;
+        y = wl->window.size.w - height;
     else
         y = 0;
 
-    wl->window.sh_width = width;
-    wl->window.sh_height = height;
-    wl->window.sh_x = x;
-    wl->window.sh_y = y;
+    struct mp_size size = { width, height };
+    wl->window.sh_size = size;
+    wl->window.sh_pos = (struct mp_pos){ x, y };
     wl->window.events |= VO_EVENT_RESIZE;
-    wl->vo->dwidth = width;
-    wl->vo->dheight = height;
+    wl->vo->dsize = size;
 }
 
 static bool create_display (struct vo_wayland_state *wl)
@@ -897,7 +895,7 @@ static void vo_wayland_ontop (struct vo *vo)
     MP_DBG(wl, "going ontop\n");
     vo->opts->ontop = 1;
     wl_shell_surface_set_toplevel(wl->window.shell_surface);
-    schedule_resize(wl, 0, wl->window.width, wl->window.height);
+    schedule_resize(wl, 0, wl->window.size.w, wl->window.size.h);
 }
 
 static void vo_wayland_fullscreen (struct vo *vo)
@@ -911,8 +909,7 @@ static void vo_wayland_fullscreen (struct vo *vo)
     if (vo->opts->fullscreen) {
         MP_DBG(wl, "going fullscreen\n");
         wl->window.is_fullscreen = true;
-        wl->window.p_width = wl->window.width;
-        wl->window.p_height = wl->window.height;
+        wl->window.p_size = wl->window.size;
         wl_shell_surface_set_fullscreen(wl->window.shell_surface,
                 WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT,
                 0, fs_output);
@@ -922,7 +919,7 @@ static void vo_wayland_fullscreen (struct vo *vo)
         MP_DBG(wl, "leaving fullscreen\n");
         wl->window.is_fullscreen = false;
         wl_shell_surface_set_toplevel(wl->window.shell_surface);
-        schedule_resize(wl, 0, wl->window.p_width, wl->window.p_height);
+        schedule_resize(wl, 0, wl->window.p_size.w, wl->window.p_size.h);
     }
 }
 
@@ -1019,7 +1016,7 @@ static int vo_wayland_check_events (struct vo *vo)
     return wl->window.events;
 }
 
-static void vo_wayland_update_screeninfo(struct vo *vo, struct mp_rect *screenrc)
+static void vo_wayland_update_screeninfo(struct vo *vo, struct mp_extend *screenrc)
 {
     struct vo_wayland_state *wl = vo->wayland;
     struct mp_vo_opts *opts = vo->opts;
@@ -1027,7 +1024,7 @@ static void vo_wayland_update_screeninfo(struct vo *vo, struct mp_rect *screenrc
 
     wl_display_roundtrip(wl->display.display);
 
-    *screenrc = (struct mp_rect){0};
+    *screenrc = (struct mp_extend){};
 
     int screen_id = 0;
 
@@ -1057,20 +1054,19 @@ static void vo_wayland_update_screeninfo(struct vo *vo, struct mp_rect *screenrc
 
     if (fsscreen_output) {
         wl->display.fs_output = fsscreen_output->output;
-        screenrc->x1 = fsscreen_output->width;
-        screenrc->y1 = fsscreen_output->height;
+        screenrc->size.w = fsscreen_output->width;
+        screenrc->size.h = fsscreen_output->height;
     }
     else {
         wl->display.fs_output = NULL; /* current output is always 0 */
 
         if (first_output) {
-            screenrc->x1 = first_output->width;
-            screenrc->y1 = first_output->height;
+            screenrc->size.w = first_output->width;
+            screenrc->size.h = first_output->height;
         }
     }
 
-    wl->window.fs_width = screenrc->x1;
-    wl->window.fs_height = screenrc->y1;
+    wl->window.fs_size = screenrc->size;
 }
 
 int vo_wayland_control (struct vo *vo, int *events, int request, void *arg)
@@ -1089,15 +1085,14 @@ int vo_wayland_control (struct vo *vo, int *events, int request, void *arg)
         vo_wayland_ontop(vo);
         return VO_TRUE;
     case VOCTRL_GET_WINDOW_SIZE: {
-        int *s = arg;
-        s[0] = wl->window.width;
-        s[1] = wl->window.height;
+        struct mp_size *size = arg;
+        *size = wl->window.size;
         return VO_TRUE;
     }
     case VOCTRL_SET_WINDOW_SIZE: {
-        int *s = arg;
+        struct mp_size *size = arg;
         if (!wl->window.is_fullscreen)
-            schedule_resize(wl, 0, s[0], s[1]);
+            schedule_resize(wl, 0, size->w, size->h);
         return VO_TRUE;
     }
     case VOCTRL_SET_CURSOR_VISIBILITY:
@@ -1122,26 +1117,24 @@ bool vo_wayland_config (struct vo *vo, uint32_t flags)
 {
     struct vo_wayland_state *wl = vo->wayland;
 
-    struct mp_rect screenrc;
+    struct mp_extend screenrc;
     vo_wayland_update_screeninfo(vo, &screenrc);
 
     struct vo_win_geometry geo;
     vo_calc_window_geometry(vo, &screenrc, &geo);
     vo_apply_window_geometry(vo, &geo);
 
-    wl->window.p_width = vo->dwidth;
-    wl->window.p_height = vo->dheight;
-    wl->window.aspect = vo->dwidth / (float) MPMAX(vo->dheight, 1);
+    wl->window.p_size = vo->dsize;
+    wl->window.aspect = vo->dsize.w / (float) MPMAX(vo->dsize.h, 1);
 
     if (!(flags & VOFLAG_HIDDEN)) {
         if (!wl->window.is_init) {
-            wl->window.width = vo->dwidth;
-            wl->window.height = vo->dheight;
+            wl->window.size = vo->dsize;
         }
 
         if (vo->opts->fullscreen) {
             if (wl->window.is_fullscreen)
-                schedule_resize(wl, 0, wl->window.fs_width, wl->window.fs_height);
+                schedule_resize(wl, 0, wl->window.fs_size.w, wl->window.fs_size.h);
             else
                 vo_wayland_fullscreen(vo);
         }

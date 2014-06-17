@@ -130,7 +130,7 @@ static int reinit(struct gl_hwdec *hw, const struct mp_image_params *params)
 
     vdp_st = vdp->output_surface_create(p->ctx->vdp_device,
                                         VDP_RGBA_FORMAT_B8G8R8A8,
-                                        params->w, params->h, &p->vdp_surface);
+                                        params->size.w, params->size.h, &p->vdp_surface);
     CHECK_VDP_ERROR(p, "Error when calling vdp_output_surface_create");
 
     gl->GenTextures(1, &p->gl_texture);

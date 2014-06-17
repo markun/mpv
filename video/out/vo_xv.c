@@ -88,8 +88,8 @@ struct xvctx {
     uint32_t image_height;
     uint32_t image_format;
     int cached_csp;
-    struct mp_rect src_rect;
-    struct mp_rect dst_rect;
+    struct mp_extend src_rect;
+    struct mp_extend dst_rect;
     uint32_t max_width, max_height; // zero means: not set
     int Shmem_Flag;
 #if HAVE_SHM && HAVE_XEXT
@@ -375,7 +375,7 @@ static int xv_init_colorkey(struct vo *vo)
  *
  * Also draws the black bars ( when the video doesn't fit the display in
  * fullscreen ) separately, so they don't overlap with the video area. */
-static void xv_draw_colorkey(struct vo *vo, const struct mp_rect *rc)
+static void xv_draw_colorkey(struct vo *vo, const struct mp_extend *rc)
 {
     struct xvctx *ctx = vo->priv;
     struct vo_x11_state *x11 = vo->x11;
@@ -384,8 +384,8 @@ static void xv_draw_colorkey(struct vo *vo, const struct mp_rect *rc)
     {
         //less tearing than XClearWindow()
         XSetForeground(x11->display, x11->vo_gc, ctx->xv_colorkey);
-        XFillRectangle(x11->display, x11->window, x11->vo_gc, rc->x0, rc->y0,
-                       rc->x1 - rc->x0, rc->y1 - rc->y0);
+        XFillRectangle(x11->display, x11->window, x11->vo_gc, rc->start.x, rc->start.y,
+                       rc->size.w, rc->size.h);
     }
 }
 
@@ -427,8 +427,8 @@ static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
 
     mp_image_unrefp(&ctx->original_image);
 
-    ctx->image_height = params->h;
-    ctx->image_width  = params->w;
+    ctx->image_height = params->size.h;
+    ctx->image_width  = params->size.w;
     ctx->image_format = params->imgfmt;
 
     if ((ctx->max_width != 0 && ctx->max_height != 0)
@@ -536,8 +536,8 @@ static bool allocate_xvimage(struct vo *vo, int foo)
         XSync(x11->display, False);
     }
     struct mp_image img = get_xv_buffer(vo, foo);
-    img.w = aligned_w;
-    mp_image_clear(&img, 0, 0, img.w, img.h);
+    img.size.w = aligned_w;
+    mp_image_clear(&img, 0, 0, img.size.w, img.size.h);
     return true;
 }
 
@@ -569,23 +569,21 @@ static inline void put_xvimage(struct vo *vo, XvImage *xvi)
 {
     struct xvctx *ctx = vo->priv;
     struct vo_x11_state *x11 = vo->x11;
-    struct mp_rect *src = &ctx->src_rect;
-    struct mp_rect *dst = &ctx->dst_rect;
-    int dw = dst->x1 - dst->x0, dh = dst->y1 - dst->y0;
-    int sw = src->x1 - src->x0, sh = src->y1 - src->y0;
+    struct mp_extend *src = &ctx->src_rect;
+    struct mp_extend *dst = &ctx->dst_rect;
 #if HAVE_SHM && HAVE_XEXT
     if (ctx->Shmem_Flag) {
         XvShmPutImage(x11->display, ctx->xv_port, x11->window, x11->vo_gc, xvi,
-                      src->x0, src->y0, sw, sh,
-                      dst->x0, dst->y0, dw, dh,
+                      src->start.x, src->start.y, src->size.w, src->size.h,
+                      dst->start.x, dst->start.y, dst->size.w, dst->size.h,
                       True);
         x11->ShmCompletionWaitCount++;
     } else
 #endif
     {
         XvPutImage(x11->display, ctx->xv_port, x11->window, x11->vo_gc, xvi,
-                   src->x0, src->y0, sw, sh,
-                   dst->x0, dst->y0, dw, dh);
+                   src->start.x, src->start.y, src->size.w, src->size.h,
+                   dst->start.x, dst->start.y, dst->size.w, dst->size.h);
     }
 }
 
@@ -595,7 +593,8 @@ static struct mp_image get_xv_buffer(struct vo *vo, int buf_index)
     XvImage *xv_image = ctx->xvimage[buf_index];
 
     struct mp_image img = {0};
-    mp_image_set_size(&img, ctx->image_width, ctx->image_height);
+    struct mp_size size = { ctx->image_width, ctx->image_height };
+    mp_image_set_size(&img, size);
     mp_image_setfmt(&img, ctx->image_format);
 
     bool swapuv = ctx->xv_format == MP_FOURCC_YV12;
@@ -666,7 +665,7 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
     if (mpi) {
         mp_image_copy(&xv_buffer, mpi);
     } else {
-        mp_image_clear(&xv_buffer, 0, 0, xv_buffer.w, xv_buffer.h);
+        mp_image_clear(&xv_buffer, 0, 0, xv_buffer.size.w, xv_buffer.size.h);
     }
 
     struct mp_osd_res res = osd_res_from_image_params(vo->params);
@@ -853,12 +852,12 @@ static int control(struct vo *vo, uint32_t request, void *data)
     }
     case VOCTRL_WINDOW_TO_OSD_COORDS: {
         float *c = data;
-        struct mp_rect *src = &ctx->src_rect;
-        struct mp_rect *dst = &ctx->dst_rect;
-        c[0] = av_clipf(c[0], dst->x0, dst->x1) - dst->x0;
-        c[1] = av_clipf(c[1], dst->y0, dst->y1) - dst->y0;
-        c[0] = c[0] / (dst->x1 - dst->x0) * (src->x1 - src->x0) + src->x0;
-        c[1] = c[1] / (dst->y1 - dst->y0) * (src->y1 - src->y0) + src->y0;
+        struct mp_extend *src = &ctx->src_rect;
+        struct mp_extend *dst = &ctx->dst_rect;
+        c[0] = av_clipf(c[0] - dst->start.x, 0, dst->size.w);
+        c[1] = av_clipf(c[1] - dst->start.y, 0, dst->size.h);
+        c[0] = c[0] / dst->size.w * src->size.w + src->start.x;
+        c[1] = c[1] / dst->size.h * src->size.h + src->start.y;
         return VO_TRUE;
     }
     }

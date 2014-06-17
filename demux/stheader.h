@@ -80,7 +80,7 @@ typedef struct sh_video {
     float fps;            // frames per second (set only if constant fps)
     float aspect;         // aspect ratio stored in the file (for prescaling)
     int bitrate;          // compressed bits/sec
-    int disp_w, disp_h;   // display size
+    struct mp_size disp_size;   // display size
     int rotate;           // intended display rotation, in degrees, [0, 359]
     MP_BITMAPINFOHEADER *bih;
 } sh_video_t;
@@ -88,7 +88,7 @@ typedef struct sh_video {
 typedef struct sh_sub {
     unsigned char *extradata;   // extra header data passed from demuxer
     int extradata_len;
-    int w, h;                   // mp4 vobsubs
+    struct mp_size size;                   // mp4 vobsubs
     double frame_based;         // timestamps are frame-based (and this is the
                                 // fallback framerate used for timestamps)
     bool is_utf8;               // if false, subtitle packet charset is unknown

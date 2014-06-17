@@ -65,8 +65,7 @@ struct mpgl_osd *mpgl_osd_init(GL *gl, struct mp_log *log, struct osd_state *osd
         struct mpgl_osd_part *p = talloc_ptrtype(ctx, p);
         *p = (struct mpgl_osd_part) {
             .packer = talloc_struct(p, struct bitmap_packer, {
-                .w_max = max_texture_size,
-                .h_max = max_texture_size,
+                .size_max = { max_texture_size, max_texture_size },
             }),
         };
         ctx->parts[n] = p;
@@ -105,7 +104,7 @@ static bool upload_pbo(struct mpgl_osd *ctx, struct mpgl_osd_part *osd,
     if (!osd->buffer) {
         gl->GenBuffers(1, &osd->buffer);
         gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, osd->buffer);
-        gl->BufferData(GL_PIXEL_UNPACK_BUFFER, osd->w * osd->h * pix_stride,
+        gl->BufferData(GL_PIXEL_UNPACK_BUFFER, osd->size.w * osd->size.h * pix_stride,
                         NULL, GL_DYNAMIC_COPY);
         gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     }
@@ -115,9 +114,9 @@ static bool upload_pbo(struct mpgl_osd *ctx, struct mpgl_osd_part *osd,
     if (!data) {
         success = false;
     } else {
-        struct pos bb[2];
+        struct mp_pos bb[2];
         packer_get_bb(osd->packer, bb);
-        size_t stride = osd->w * pix_stride;
+        size_t stride = osd->size.w * pix_stride;
         packer_copy_subbitmaps(osd->packer, imgs, data, pix_stride, stride);
         if (!gl->UnmapBuffer(GL_PIXEL_UNPACK_BUFFER))
             success = false;
@@ -140,7 +139,7 @@ static void upload_tex(struct mpgl_osd *ctx, struct mpgl_osd_part *osd,
 {
     struct osd_fmt_entry fmt = ctx->fmt_table[imgs->format];
     if (osd->packer->padding) {
-        struct pos bb[2];
+        struct mp_pos bb[2];
         packer_get_bb(osd->packer, bb);
         glClearTex(ctx->gl, GL_TEXTURE_2D, fmt.format, fmt.type,
                    bb[0].x, bb[0].y, bb[1].x - bb[0].y, bb[1].y - bb[0].y,
@@ -148,10 +147,10 @@ static void upload_tex(struct mpgl_osd *ctx, struct mpgl_osd_part *osd,
     }
     for (int n = 0; n < osd->packer->count; n++) {
         struct sub_bitmap *s = &imgs->parts[n];
-        struct pos p = osd->packer->result[n];
+        struct mp_pos p = osd->packer->result[n];
 
         glUploadTex(ctx->gl, GL_TEXTURE_2D, fmt.format, fmt.type,
-                    s->bitmap, s->stride, p.x, p.y, s->w, s->h, 0);
+                    s->bitmap, s->stride, p.x, p.y, s->size.w, s->size.h, 0);
     }
 }
 
@@ -165,7 +164,7 @@ static bool upload_osd(struct mpgl_osd *ctx, struct mpgl_osd_part *osd,
     int r = packer_pack_from_subbitmaps(osd->packer, imgs);
     if (r < 0) {
         MP_ERR(ctx, "OSD bitmaps do not fit on a surface with the maximum "
-               "supported size %dx%d.\n", osd->packer->w_max, osd->packer->h_max);
+               "supported size %dx%d.\n", osd->packer->size_max.w, osd->packer->size_max.h);
         return false;
     }
 
@@ -177,14 +176,14 @@ static bool upload_osd(struct mpgl_osd *ctx, struct mpgl_osd_part *osd,
 
     gl->BindTexture(GL_TEXTURE_2D, osd->texture);
 
-    if (osd->packer->w > osd->w || osd->packer->h > osd->h
+    if (osd->packer->size.w > osd->size.w || osd->packer->size.h > osd->size.h
         || osd->format != imgs->format)
     {
         osd->format = imgs->format;
-        osd->w = FFMAX(32, osd->packer->w);
-        osd->h = FFMAX(32, osd->packer->h);
+        osd->size.w = FFMAX(32, osd->packer->size.w);
+        osd->size.h = FFMAX(32, osd->packer->size.h);
 
-        gl->TexImage2D(GL_TEXTURE_2D, 0, fmt.internal_format, osd->w, osd->h,
+        gl->TexImage2D(GL_TEXTURE_2D, 0, fmt.internal_format, osd->size.w, osd->size.h,
                        0, fmt.format, fmt.type, NULL);
 
         gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -273,26 +272,26 @@ static void draw_legacy_cb(void *pctx, struct sub_bitmaps *imgs)
                                        osd->packer->count * 6);
 
         struct vertex *va = osd->vertices;
-        float tex_w = osd->w;
-        float tex_h = osd->h;
+        float tex_w = osd->size.w;
+        float tex_h = osd->size.h;
 
         for (int n = 0; n < osd->packer->count; n++) {
             struct sub_bitmap *b = &imgs->parts[n];
-            struct pos p = osd->packer->result[n];
+            struct mp_pos p = osd->packer->result[n];
 
             uint32_t c = imgs->format == SUBBITMAP_LIBASS
                          ? b->libass.color : 0xFFFFFF00;
             uint8_t color[4] = { c >> 24, (c >> 16) & 0xff,
                                  (c >> 8) & 0xff, 255 - (c & 0xff) };
 
-            float x0 = b->x;
-            float y0 = b->y;
-            float x1 = b->x + b->dw;
-            float y1 = b->y + b->dh;
+            float x0 = b->start.x;
+            float y0 = b->start.y;
+            float x1 = b->start.x + b->dsize.w;
+            float y1 = b->start.y + b->dsize.h;
             float tx0 = p.x / tex_w;
             float ty0 = p.y / tex_h;
-            float tx1 = (p.x + b->w) / tex_w;
-            float ty1 = (p.y + b->h) / tex_h;
+            float tx1 = (p.x + b->size.w) / tex_w;
+            float ty1 = (p.y + b->size.h) / tex_h;
 
 #define COLOR_INIT {color[0], color[1], color[2], color[3]}
             struct vertex *v = &va[osd->num_vertices];

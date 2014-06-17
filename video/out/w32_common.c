@@ -1080,16 +1080,15 @@ int vo_w32_control(struct vo *vo, int *events, int request, void *arg)
         return VO_TRUE;
     }
     case VOCTRL_SET_WINDOW_SIZE: {
-        int *s = arg;
+        struct mp_size *size = arg;
 
         if (!w32->window_bounds_initialized)
             return VO_FALSE;
         if (w32->current_fs) {
-            w32->prev_width = s[0];
-            w32->prev_height = s[1];
+            w32->prev_width = size->w;
+            w32->prev_height = size->h;
         } else {
-            vo->dwidth = s[0];
-            vo->dheight = s[1];
+            vo->dsize = size;
         }
 
         reinit_window_state(vo);

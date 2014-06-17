@@ -73,14 +73,11 @@ struct priv {
     int depth, bpp;
     XWindowAttributes attribs;
 
-    uint32_t image_width;
-    uint32_t image_height;
+    struct mp_size image_size;
     struct mp_image_params in_format;
 
-    struct mp_rect src;
-    struct mp_rect dst;
-    int src_w, src_h;
-    int dst_w, dst_h;
+    struct mp_extend src;
+    struct mp_extend dst;
     struct mp_osd_res osd;
 
     struct mp_sws_context *sws;
@@ -170,8 +167,8 @@ static void getMyXImage(struct priv *p, int foo)
     if (p->Shmem_Flag) {
         p->myximage[foo] =
             XShmCreateImage(vo->x11->display, p->vinfo.visual, p->depth,
-                            ZPixmap, NULL, &p->Shminfo[foo], p->image_width,
-                            p->image_height);
+                            ZPixmap, NULL, &p->Shminfo[foo], p->image_size.w,
+                            p->image_size.h);
         if (p->myximage[foo] == NULL) {
             MP_WARN(vo, "Shared memory error,disabling ( Ximage error )\n");
             goto shmemerror;
@@ -213,13 +210,13 @@ shmemerror:
 #endif
     p->myximage[foo] =
         XCreateImage(vo->x11->display, p->vinfo.visual, p->depth, ZPixmap,
-                     0, NULL, p->image_width, p->image_height, 8, 0);
+                     0, NULL, p->image_size.w, p->image_size.h, 8, 0);
     p->ImageDataOrig[foo] =
-        malloc(p->myximage[foo]->bytes_per_line * p->image_height + 32);
+        malloc(p->myximage[foo]->bytes_per_line * p->image_size.h + 32);
     p->myximage[foo]->data = p->ImageDataOrig[foo] + 16
                            - ((long)p->ImageDataOrig & 15);
     memset(p->myximage[foo]->data, 0, p->myximage[foo]->bytes_per_line
-                                      * p->image_height);
+                                      * p->image_size.h);
     p->ImageData[foo] = p->myximage[foo]->data;
 #if HAVE_SHM && HAVE_XEXT
 }
@@ -325,23 +322,17 @@ static bool resize(struct vo *vo)
 
     vo_get_src_dst_rects(vo, &p->src, &p->dst, &p->osd);
 
-    p->src_w = p->src.x1 - p->src.x0;
-    p->src_h = p->src.y1 - p->src.y0;
-    p->dst_w = p->dst.x1 - p->dst.x0;
-    p->dst_h = p->dst.y1 - p->dst.y0;
-
     // p->osd contains the parameters assuming OSD rendering in window
     // coordinates, but OSD can only be rendered in the intersection
     // between window and video rectangle (i.e. not into panscan borders).
-    p->osd.w = p->dst_w;
-    p->osd.h = p->dst_h;
-    p->osd.mt = FFMIN(0, p->osd.mt);
-    p->osd.mb = FFMIN(0, p->osd.mb);
-    p->osd.mr = FFMIN(0, p->osd.mr);
-    p->osd.ml = FFMIN(0, p->osd.ml);
+    p->osd.size = p->dst.size;
+    p->osd.margin.t = FFMIN(0, p->osd.margin.t);
+    p->osd.margin.b = FFMIN(0, p->osd.margin.b);
+    p->osd.margin.r = FFMIN(0, p->osd.margin.r);
+    p->osd.margin.l = FFMIN(0, p->osd.margin.l);
 
-    p->image_width = (p->dst_w + 7) & (~7);
-    p->image_height = p->dst_h;
+    p->image_size.w = (p->dst.size.w + 7) & (~7);
+    p->image_size.h = p->dst.size.h;
 
     p->num_buffers = 2;
     for (int i = 0; i < p->num_buffers; i++)
@@ -374,10 +365,8 @@ static bool resize(struct vo *vo)
     p->sws->src = p->in_format;
     p->sws->dst = (struct mp_image_params) {
         .imgfmt = fmte->mpfmt,
-        .w = p->dst_w,
-        .h = p->dst_h,
-        .d_w = p->dst_w,
-        .d_h = p->dst_h,
+        .size = p->dst.size,
+        .dsize = p->dst.size,
     };
     mp_image_params_guess_csp(&p->sws->dst);
 
@@ -399,14 +388,14 @@ static void Display_Image(struct priv *p, XImage *myximage)
 #if HAVE_SHM && HAVE_XEXT
     if (p->Shmem_Flag) {
         XShmPutImage(vo->x11->display, vo->x11->window, vo->x11->vo_gc, x_image,
-                     0, 0, p->dst.x0, p->dst.y0, p->dst_w, p->dst_h,
+                     0, 0, p->dst.start.x, p->dst.start.y, p->dst.size.w, p->dst.size.h,
                      True);
         vo->x11->ShmCompletionWaitCount++;
     } else
 #endif
     {
         XPutImage(vo->x11->display, vo->x11->window, vo->x11->vo_gc, x_image,
-                  0, 0, p->dst.x0, p->dst.y0, p->dst_w, p->dst_h);
+                  0, 0, p->dst.start.x, p->dst.start.y, p->dst.size.w, p->dst.size.h);
     }
 }
 
@@ -416,7 +405,7 @@ static struct mp_image get_x_buffer(struct priv *p, int buf_index)
     mp_image_set_params(&img, &p->sws->dst);
 
     img.planes[0] = p->ImageData[buf_index];
-    img.stride[0] = p->image_width * ((p->bpp + 7) / 8);
+    img.stride[0] = p->image_size.w * ((p->bpp + 7) / 8);
 
     return img;
 }
@@ -471,14 +460,14 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
 
     if (mpi) {
         struct mp_image src = *mpi;
-        struct mp_rect src_rc = p->src;
-        src_rc.x0 = MP_ALIGN_DOWN(src_rc.x0, src.fmt.align_x);
-        src_rc.y0 = MP_ALIGN_DOWN(src_rc.y0, src.fmt.align_y);
-        mp_image_crop_rc(&src, src_rc);
+        struct mp_extend src_rc = p->src;
+        src_rc.start.x = MP_ALIGN_DOWN(src_rc.start.x, src.fmt.align_x);
+        src_rc.start.y = MP_ALIGN_DOWN(src_rc.start.y, src.fmt.align_y);
+        mp_image_crop_ext(&src, src_rc);
 
         mp_sws_scale(p->sws, &img, &src);
     } else {
-        mp_image_clear(&img, 0, 0, img.w, img.h);
+        mp_image_clear(&img, 0, 0, img.size.w, img.size.h);
     }
 
     osd_draw_on_image(vo->osd, p->osd, mpi ? mpi->pts : 0, 0, &img);
@@ -625,9 +614,9 @@ static int control(struct vo *vo, uint32_t request, void *data)
     case VOCTRL_WINDOW_TO_OSD_COORDS: {
         // OSD is rendered into the scaled image
         float *c = data;
-        struct mp_rect *dst = &p->dst;
-        c[0] = av_clipf(c[0], dst->x0, dst->x1) - dst->x0;
-        c[1] = av_clipf(c[1], dst->y0, dst->y1) - dst->y0;
+        struct mp_extend *dst = &p->dst;
+        c[0] = av_clipf(c[0] - dst->start.x, 0, dst->size.w);
+        c[1] = av_clipf(c[1] - dst->start.y, 0, dst->size.h);
         return VO_TRUE;
     }
     case VOCTRL_SCREENSHOT: {

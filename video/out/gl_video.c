@@ -100,8 +100,8 @@ struct vertex {
 #define VERTICES_PER_QUAD 6
 
 struct texplane {
-    int w, h;
-    int tex_w, tex_h;
+    struct mp_size size;
+    struct mp_size tex_size;
     GLint gl_internal_format;
     GLenum gl_format;
     GLenum gl_type;
@@ -132,8 +132,8 @@ struct scaler {
 struct fbotex {
     GLuint fbo;
     GLuint texture;
-    int tex_w, tex_h;           // size of .texture
-    int vp_x, vp_y, vp_w, vp_h; // viewport of fbo / used part of the texture
+    struct mp_size tex_size;           // size of .texture
+    struct mp_extend vp; // viewport of fbo / used part of the texture
 };
 
 struct gl_video {
@@ -168,7 +168,7 @@ struct gl_video {
     uint32_t image_w, image_h;
     uint32_t image_dw, image_dh;
     uint32_t image_format;
-    int texture_w, texture_h;
+    struct mp_size texture_size;
 
     struct mp_imgfmt_desc image_desc;
 
@@ -195,11 +195,11 @@ struct gl_video {
     struct mp_csp_equalizer video_eq;
     struct mp_image_params image_params;
 
-    struct mp_rect src_rect;    // displayed part of the source video
-    struct mp_rect src_rect_rot;// compensated for optional rotation
-    struct mp_rect dst_rect;    // video rectangle on output window
+    struct mp_extend src_rect;    // displayed part of the source video
+    struct mp_extend src_rect_rot;// compensated for optional rotation
+    struct mp_extend dst_rect;    // video rectangle on output window
     struct mp_osd_res osd_rect; // OSD size/margins
-    int vp_x, vp_y, vp_w, vp_h; // GL viewport
+    struct mp_extend vp; // GL viewport
 
     int frames_rendered;
 
@@ -384,18 +384,17 @@ void gl_video_set_debug(struct gl_video *p, bool enable)
     p->gl_debug = enable;
 }
 
-static void texture_size(struct gl_video *p, int w, int h, int *texw, int *texh)
+static void texture_size(struct gl_video *p, struct mp_size size, struct mp_size *tex_size)
 {
     if (p->opts.npot) {
-        *texw = w;
-        *texh = h;
+        *tex_size = size;
     } else {
-        *texw = 32;
-        while (*texw < w)
-            *texw *= 2;
-        *texh = 32;
-        while (*texh < h)
-            *texh *= 2;
+        tex_size->w = 32;
+        while (tex_size->w < size.w)
+            tex_size->w *= 2;
+        tex_size->h = 32;
+        while (tex_size->h < size.h)
+            tex_size->h *= 2;
     }
 }
 
@@ -429,8 +428,8 @@ static void draw_triangles(struct gl_video *p, struct vertex *vb, int vert_count
 // color = optional color for all vertices, NULL for opaque white
 // flags = bits 0-1: rotate, bits 2: flip vertically
 static void write_quad(struct vertex *va,
-                       float x0, float y0, float x1, float y1,
-                       float tx0, float ty0, float tx1, float ty1,
+                       float x0, float y0, float w, float h,
+                       float tx0, float ty0, float tw, float th,
                        float texture_w, float texture_h,
                        const uint8_t color[4], GLenum target, int flags)
 {
@@ -438,6 +437,11 @@ static void write_quad(struct vertex *va,
 
     if (!color)
         color = white;
+
+    float y1 = y0 + h;
+    float x1 = x0 + w;
+    float ty1 = ty0 + th;
+    float tx1 = tx0 + tw;
 
     if (target == GL_TEXTURE_2D) {
         tx0 /= texture_w;
@@ -447,9 +451,7 @@ static void write_quad(struct vertex *va,
     }
 
     if (flags & 4) {
-        float tmp = ty0;
-        ty0 = ty1;
-        ty1 = tmp;
+        MPSWAP(float, ty0, ty1);
     }
 
 #define COLOR_INIT {color[0], color[1], color[2], color[3]}
@@ -479,14 +481,15 @@ static bool fbotex_init(struct gl_video *p, struct fbotex *fbo, int w, int h,
     assert(!fbo->fbo);
     assert(!fbo->texture);
 
+    struct mp_size size = { w, h };
+
     *fbo = (struct fbotex) {
-        .vp_w = w,
-        .vp_h = h,
+        .vp.size = size,
     };
 
-    texture_size(p, w, h, &fbo->tex_w, &fbo->tex_h);
+    texture_size(p, size, &fbo->tex_size);
 
-    MP_VERBOSE(p, "Create FBO: %dx%d\n", fbo->tex_w, fbo->tex_h);
+    MP_VERBOSE(p, "Create FBO: %dx%d\n", fbo->tex_size.w, fbo->tex_size.h);
 
     if (!(gl->mpgl_caps & MPGL_CAP_FB))
         return false;
@@ -495,7 +498,7 @@ static bool fbotex_init(struct gl_video *p, struct fbotex *fbo, int w, int h,
     gl->GenTextures(1, &fbo->texture);
     gl->BindTexture(p->gl_target, fbo->texture);
     gl->TexImage2D(p->gl_target, 0, iformat,
-                   fbo->tex_w, fbo->tex_h, 0,
+                   fbo->tex_size.w, fbo->tex_size.h, 0,
                    GL_RGB, GL_UNSIGNED_BYTE, NULL);
     default_tex_params(gl, p->gl_target, GL_LINEAR);
     gl->BindFramebuffer(GL_FRAMEBUFFER, fbo->fbo);
@@ -566,7 +569,7 @@ static void update_uniforms(struct gl_video *p, GLuint program)
     loc = gl->GetUniformLocation(program, "transform");
     if (loc >= 0) {
         float matrix[3][3];
-        matrix_ortho2d(matrix, 0, p->vp_w, p->vp_h, 0);
+        matrix_ortho2d(matrix, 0, p->vp.size.w, p->vp.size.h, 0);
         gl->UniformMatrix3fv(loc, 1, GL_FALSE, &matrix[0][0]);
     }
 
@@ -598,7 +601,7 @@ static void update_uniforms(struct gl_video *p, GLuint program)
         gl->Uniform1i(gl->GetUniformLocation(program, textures_n), n);
         if (p->gl_target == GL_TEXTURE_2D) {
             gl->Uniform2f(gl->GetUniformLocation(program, textures_size_n),
-                          p->image.planes[n].tex_w, p->image.planes[n].tex_h);
+                          p->image.planes[n].tex_size.w, p->image.planes[n].tex_size.h);
         } else {
             // Makes the pixel size calculation code think they are 1x1
             gl->Uniform2f(gl->GetUniformLocation(program, textures_size_n), 1, 1);
@@ -630,8 +633,8 @@ static void update_uniforms(struct gl_video *p, GLuint program)
         float o_x = ls_w < 1 ? ls_w * -cx / 2 : 0;
         float o_y = ls_h < 1 ? ls_h * -cy / 2 : 0;
         int c = p->gl_target == GL_TEXTURE_2D ? 1 : 0;
-        gl->Uniform2f(loc, o_x / FFMAX(p->image.planes[1].w * c, 1),
-                           o_y / FFMAX(p->image.planes[1].h * c, 1));
+        gl->Uniform2f(loc, o_x / FFMAX(p->image.planes[1].size.w * c, 1),
+                           o_y / FFMAX(p->image.planes[1].size.h * c, 1));
     }
 
     gl->Uniform2f(gl->GetUniformLocation(program, "dither_size"),
@@ -1008,10 +1011,10 @@ static void delete_shaders(struct gl_video *p)
 
 static double get_scale_factor(struct gl_video *p)
 {
-    double sx = (p->dst_rect.x1 - p->dst_rect.x0) /
-                (double)(p->src_rect.x1 - p->src_rect.x0);
-    double sy = (p->dst_rect.y1 - p->dst_rect.y0) /
-                (double)(p->src_rect.y1 - p->src_rect.y0);
+    double sx = (p->dst_rect.size.w) /
+                (double)(p->src_rect.size.w);
+    double sy = (p->dst_rect.size.h) /
+                (double)(p->src_rect.size.h);
     // xxx: actually we should use different scalers in X/Y directions if the
     // scale factors are different due to anamorphic content
     return FFMIN(sx, sy);
@@ -1164,10 +1167,9 @@ static void recreate_osd(struct gl_video *p)
     p->osd->use_pbo = p->opts.pbo;
 }
 
-static bool does_resize(struct mp_rect src, struct mp_rect dst)
+static bool does_resize(struct mp_extend src, struct mp_extend dst)
 {
-    return src.x1 - src.x0 != dst.x1 - dst.x0 ||
-           src.y1 - src.y0 != dst.y1 - dst.y0;
+    return !mp_size_equals(&src.size, &dst.size);
 }
 
 static const char *expected_scaler(struct gl_video *p, int unit)
@@ -1313,10 +1315,10 @@ static void init_video(struct gl_video *p, const struct mp_image_params *params)
 
     check_gl_features(p);
 
-    p->image_w = params->w;
-    p->image_h = params->h;
-    p->image_dw = params->d_w;
-    p->image_dh = params->d_h;
+    p->image_w = params->size.w;
+    p->image_h = params->size.h;
+    p->image_dw = params->dsize.w;
+    p->image_dh = params->dsize.h;
     p->image_params = *params;
 
     if (p->is_rgb && (p->opts.srgb || p->use_lut_3d)) {
@@ -1347,35 +1349,32 @@ static void init_video(struct gl_video *p, const struct mp_image_params *params)
     for (int n = 0; n < p->plane_count; n++) {
         struct texplane *plane = &vimg->planes[n];
 
-        plane->w = full_w >> p->image_desc.xs[n];
-        plane->h = full_h >> p->image_desc.ys[n];
+        plane->size.w = full_w >> p->image_desc.xs[n];
+        plane->size.h = full_h >> p->image_desc.ys[n];
 
         if (p->hwdec_active) {
             // We expect hwdec backends to allocate exact size
-            plane->tex_w = plane->w;
-            plane->tex_h = plane->h;
+            plane->tex_size = plane->size;
         } else {
-            texture_size(p, plane->w, plane->h,
-                            &plane->tex_w, &plane->tex_h);
+            texture_size(p, plane->size, &plane->tex_size);
 
             gl->ActiveTexture(GL_TEXTURE0 + n);
             gl->GenTextures(1, &plane->gl_texture);
             gl->BindTexture(p->gl_target, plane->gl_texture);
 
             gl->TexImage2D(p->gl_target, 0, plane->gl_internal_format,
-                           plane->tex_w, plane->tex_h, 0,
+                           plane->tex_size.w, plane->tex_size.h, 0,
                            plane->gl_format, plane->gl_type, NULL);
 
             default_tex_params(gl, p->gl_target, GL_LINEAR);
         }
 
         MP_VERBOSE(p, "Texture for plane %d: %dx%d\n",
-                   n, plane->tex_w, plane->tex_h);
+                   n, plane->tex_size.w, plane->tex_size.h);
     }
     gl->ActiveTexture(GL_TEXTURE0);
 
-    p->texture_w = p->image.planes[0].tex_w;
-    p->texture_h = p->image.planes[0].tex_h;
+    p->texture_size = p->image.planes[0].tex_size;
 
     debug_check_gl(p, "after video texture creation");
 
@@ -1437,7 +1436,7 @@ struct pass {
     struct fbotex f;
     // If true, render source (f) to dst, instead of the full dest. fbo viewport
     bool use_dst;
-    struct mp_rect dst;
+    struct mp_extend dst;
     int flags; // for write_quad
     bool render_stereo;
 };
@@ -1456,55 +1455,50 @@ static void handle_pass(struct gl_video *p, struct pass *chain,
     gl->BindTexture(p->gl_target, chain->f.texture);
     gl->UseProgram(program);
 
-    gl->Viewport(fbo->vp_x, fbo->vp_y, fbo->vp_w, fbo->vp_h);
+    gl->Viewport(fbo->vp.start.x, fbo->vp.start.y, fbo->vp.size.w, fbo->vp.size.h);
     gl->BindFramebuffer(GL_FRAMEBUFFER, fbo->fbo);
 
-    int tex_w = chain->f.tex_w;
-    int tex_h = chain->f.tex_h;
-    struct mp_rect src = {
-        .x0 = chain->f.vp_x,
-        .y0 = chain->f.vp_y,
-        .x1 = chain->f.vp_x + chain->f.vp_w,
-        .y1 = chain->f.vp_y + chain->f.vp_h,
-    };
+    int tex_w = chain->f.tex_size.w;
+    int tex_h = chain->f.tex_size.h;
+    struct mp_extend src = chain->f.vp;
 
-    struct mp_rect dst = {-1, -1, 1, 1};
+    struct mp_extend dst = {{-1, -1}, {2, 2}};
     if (chain->use_dst)
         dst = chain->dst;
 
-    MP_TRACE(p, "Pass %d: [%d,%d,%d,%d] -> [%d,%d,%d,%d][%d,%d@%dx%d/%dx%d] (%d)\n",
-             chain->num, src.x0, src.y0, src.x1, src.y1,
-             dst.x0, dst.y0, dst.x1, dst.y1,
-             fbo->vp_x, fbo->vp_y, fbo->vp_w, fbo->vp_h,
-             fbo->tex_w, fbo->tex_h, chain->flags);
+    MP_TRACE(p, "Pass %d: [%d,%d %dx%d] -> [%d,%d %dx%d][%d,%d@%dx%d/%dx%d] (%d)\n",
+             chain->num, src.start.x, src.start.y, src.size.w, src.size.h,
+             dst.start.x, dst.start.y, dst.size.w, dst.size.h,
+             fbo->vp.start.x, fbo->vp.start.y, fbo->vp.size.w, fbo->vp.size.h,
+             fbo->tex_size.w, fbo->tex_size.h, chain->flags);
 
     if (chain->render_stereo && p->opts.stereo_mode) {
-        int w = src.x1 - src.x0;
+        int w = src.size.w;
         int imgw = p->image_w;
 
         glEnable3DLeft(gl, p->opts.stereo_mode);
 
         write_quad(vb,
-                   dst.x0, dst.y0, dst.x1, dst.y1,
-                   src.x0 / 2, src.y0,
-                   src.x0 / 2 + w / 2, src.y1,
+                   dst.start.x, dst.start.y, dst.size.w, dst.size.h,
+                   src.start.x / 2, src.start.y,
+                   w / 2, src.size.h,
                    tex_w, tex_h, NULL, p->gl_target, chain->flags);
         draw_triangles(p, vb, VERTICES_PER_QUAD);
 
         glEnable3DRight(gl, p->opts.stereo_mode);
 
         write_quad(vb,
-                   dst.x0, dst.y0, dst.x1, dst.y1,
-                   src.x0 / 2 + imgw / 2, src.y0,
-                   src.x0 / 2 + imgw / 2 + w / 2, src.y1,
+                   dst.start.x, dst.start.y, dst.size.w, dst.size.h,
+                   src.start.x / 2 + imgw / 2, src.start.y,
+                   w / 2, src.size.h,
                    tex_w, tex_h, NULL, p->gl_target, chain->flags);
         draw_triangles(p, vb, VERTICES_PER_QUAD);
 
         glDisable3D(gl, p->opts.stereo_mode);
     } else {
         write_quad(vb,
-                   dst.x0, dst.y0, dst.x1, dst.y1,
-                   src.x0, src.y0, src.x1, src.y1,
+                   dst.start.x, dst.start.y, dst.size.w, dst.size.h,
+                   src.start.x, src.start.y, src.size.w, src.size.h,
                    tex_w, tex_h, NULL, p->gl_target, chain->flags);
         draw_triangles(p, vb, VERTICES_PER_QUAD);
     }
@@ -1523,9 +1517,12 @@ void gl_video_render_frame(struct gl_video *p)
     if (p->opts.temporal_dither)
         change_dither_trafo(p);
 
-    if (p->dst_rect.x0 > p->vp_x || p->dst_rect.y0 > p->vp_y
-        || p->dst_rect.x1 < p->vp_x + p->vp_w
-        || p->dst_rect.y1 < p->vp_y + p->vp_h)
+    int x1 = p->dst_rect.start.x + p->dst_rect.size.w;
+    int y1 = p->dst_rect.start.y + p->dst_rect.size.h;
+
+    if (p->dst_rect.start.x > p->vp.start.x || p->dst_rect.start.y > p->vp.start.y
+        || x1 < p->vp.start.x + p->vp.size.w
+        || y1 < p->vp.start.y + p->vp.size.h)
     {
         gl->Clear(GL_COLOR_BUFFER_BIT);
     }
@@ -1543,10 +1540,8 @@ void gl_video_render_frame(struct gl_video *p)
 
     struct pass chain = {
         .f = {
-            .vp_w = p->image_w,
-            .vp_h = p->image_h,
-            .tex_w = p->texture_w,
-            .tex_h = p->texture_h,
+            .vp.size = {p->image_w, p->image_h},
+            .tex_size = p->texture_size,
             .texture = imgtex[0],
         },
     };
@@ -1556,16 +1551,13 @@ void gl_video_render_frame(struct gl_video *p)
     // Clip to visible height so that separate scaling scales the visible part
     // only (and the target FBO texture can have a bounded size).
     // Don't clamp width; too hard to get correct final scaling on l/r borders.
-    chain.f.vp_y = p->src_rect_rot.y0;
-    chain.f.vp_h = p->src_rect_rot.y1 - p->src_rect_rot.y0;
+    chain.f.vp.start.y = p->src_rect_rot.start.y;
+    chain.f.vp.size.h = p->src_rect_rot.size.h;
 
     handle_pass(p, &chain, &p->scale_sep_fbo, p->scale_sep_program);
 
     struct fbotex screen = {
-        .vp_x = p->vp_x,
-        .vp_y = p->vp_y,
-        .vp_w = p->vp_w,
-        .vp_h = p->vp_h,
+        .vp = p->vp,
         .texture = 0, //makes BindFramebuffer select the screen backbuffer
     };
 
@@ -1573,8 +1565,8 @@ void gl_video_render_frame(struct gl_video *p)
     // correct origin/height before.
     // For X direction, assume the texture wasn't scaled yet, so we can
     // select the correct portion, which will be scaled to screen.
-    chain.f.vp_x = p->src_rect_rot.x0;
-    chain.f.vp_w = p->src_rect_rot.x1 - p->src_rect_rot.x0;
+    chain.f.vp.start.x = p->src_rect_rot.start.x;
+    chain.f.vp.size.w = p->src_rect_rot.size.w;
 
     chain.use_dst = true;
     chain.dst = p->dst_rect;
@@ -1586,7 +1578,7 @@ void gl_video_render_frame(struct gl_video *p)
 
     gl->UseProgram(0);
     gl->BindFramebuffer(GL_FRAMEBUFFER, 0);
-    gl->Viewport(p->vp_x, p->vp_y, p->vp_w, p->vp_h);
+    gl->Viewport(p->vp.start.x, p->vp.start.y, p->vp.size.w, p->vp.size.h);
 
     unset_image_textures(p);
 
@@ -1609,11 +1601,11 @@ draw_osd:
 static void update_window_sized_objects(struct gl_video *p)
 {
     if (p->scale_sep_program) {
-        int w = p->dst_rect.x1 - p->dst_rect.x0;
-        int h = p->dst_rect.y1 - p->dst_rect.y0;
+        int w = p->dst_rect.size.w;
+        int h = p->dst_rect.size.h;
         if ((p->image_params.rotate % 180) == 90)
             MPSWAP(int, w, h);
-        if (h > p->scale_sep_fbo.tex_h) {
+        if (h > p->scale_sep_fbo.tex_size.h) {
             fbotex_uninit(p, &p->scale_sep_fbo);
             // Round up to an arbitrary alignment to make window resizing or
             // panscan controls smoother (less texture reallocations).
@@ -1621,8 +1613,8 @@ static void update_window_sized_objects(struct gl_video *p)
             fbotex_init(p, &p->scale_sep_fbo, p->image_w, height,
                         p->opts.fbo_format);
         }
-        p->scale_sep_fbo.vp_w = p->image_w;
-        p->scale_sep_fbo.vp_h = h;
+        p->scale_sep_fbo.vp.size.w = p->image_w;
+        p->scale_sep_fbo.vp.size.h = h;
     }
 }
 
@@ -1660,8 +1652,8 @@ static void check_resize(struct gl_video *p)
     update_all_uniforms(p);
 }
 
-void gl_video_resize(struct gl_video *p, struct mp_rect *window,
-                     struct mp_rect *src, struct mp_rect *dst,
+void gl_video_resize(struct gl_video *p, struct mp_extend *window,
+                     struct mp_extend *src, struct mp_extend *dst,
                      struct mp_osd_res *osd)
 {
     p->src_rect = *src;
@@ -1670,16 +1662,14 @@ void gl_video_resize(struct gl_video *p, struct mp_rect *window,
     p->osd_rect = *osd;
 
     if ((p->image_params.rotate % 180) == 90) {
-        MPSWAP(int, p->src_rect_rot.x0, p->src_rect_rot.y0);
-        MPSWAP(int, p->src_rect_rot.x1, p->src_rect_rot.y1);
+        MPSWAP(int, p->src_rect_rot.start.x, p->src_rect_rot.start.y);
+        MPSWAP(int, p->src_rect_rot.size.w, p->src_rect_rot.size.h);
     }
 
-    p->vp_x = window->x0;
-    p->vp_y = window->y0;
-    p->vp_w = window->x1 - window->x0;
-    p->vp_h = window->y1 - window->y0;
+    p->vp.start = window->start;
+    p->vp.size = window->size;
 
-    p->gl->Viewport(p->vp_x, p->vp_y, p->vp_w, p->vp_h);
+    p->gl->Viewport(p->vp.start.x, p->vp.start.y, p->vp.size.w, p->vp.size.h);
 
     check_resize(p);
 }
@@ -1695,12 +1685,12 @@ static bool get_image(struct gl_video *p, struct mp_image *mpi)
 
     // See comments in init_video() about odd video sizes.
     // The normal upload path does this too, but less explicit.
-    mp_image_set_size(mpi, vimg->planes[0].w, vimg->planes[0].h);
+    mp_image_set_size(mpi, vimg->planes[0].size);
 
     for (int n = 0; n < p->plane_count; n++) {
         struct texplane *plane = &vimg->planes[n];
-        mpi->stride[n] = mpi->plane_w[n] * p->image_desc.bytes[n];
-        int needed_size = mpi->plane_h[n] * mpi->stride[n];
+        mpi->stride[n] = mpi->plane_size[n].w * p->image_desc.bytes[n];
+        int needed_size = mpi->plane_size[n].h * mpi->stride[n];
         if (!plane->gl_buffer)
             gl->GenBuffers(1, &plane->gl_buffer);
         gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, plane->gl_buffer);
@@ -1739,8 +1729,8 @@ void gl_video_upload_image(struct gl_video *p, struct mp_image *mpi)
     bool pbo = false;
     if (!vimg->planes[0].buffer_ptr && get_image(p, &mpi2)) {
         for (int n = 0; n < p->plane_count; n++) {
-            int line_bytes = mpi->plane_w[n] * p->image_desc.bytes[n];
-            memcpy_pic(mpi2.planes[n], mpi->planes[n], line_bytes, mpi->plane_h[n],
+            int line_bytes = mpi->plane_size[n].w * p->image_desc.bytes[n];
+            memcpy_pic(mpi2.planes[n], mpi->planes[n], line_bytes, mpi->plane_size[n].h,
                        mpi2.stride[n], mpi->stride[n]);
         }
         pbo = true;
@@ -1760,7 +1750,7 @@ void gl_video_upload_image(struct gl_video *p, struct mp_image *mpi)
         gl->ActiveTexture(GL_TEXTURE0 + n);
         gl->BindTexture(p->gl_target, plane->gl_texture);
         glUploadTex(gl, p->gl_target, plane->gl_format, plane->gl_type,
-                    plane_ptr, mpi2.stride[n], 0, 0, plane->w, plane->h, 0);
+                    plane_ptr, mpi2.stride[n], 0, 0, plane->size.w, plane->size.h, 0);
     }
     gl->ActiveTexture(GL_TEXTURE0);
     gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
@@ -1788,11 +1778,10 @@ struct mp_image *gl_video_download_image(struct gl_video *p)
 
     set_image_textures(p, vimg, NULL);
 
-    assert(p->texture_w >= p->image_params.w);
-    assert(p->texture_h >= p->image_params.h);
+    assert(p->texture_size.w >= p->image_params.size.w);
+    assert(p->texture_size.h >= p->image_params.size.h);
 
-    mp_image_t *image = mp_image_alloc(p->image_format, p->texture_w,
-                                                        p->texture_h);
+    mp_image_t *image = mp_image_alloc(p->image_format, p->texture_size);
     if (image) {
         for (int n = 0; n < p->plane_count; n++) {
             struct texplane *plane = &vimg->planes[n];
@@ -1827,7 +1816,7 @@ static void draw_osd_cb(void *ctx, struct sub_bitmaps *imgs)
 
         for (int n = 0; n < osd->packer->count; n++) {
             struct sub_bitmap *b = &imgs->parts[n];
-            struct pos pos = osd->packer->result[n];
+            struct mp_pos pos = osd->packer->result[n];
 
             // NOTE: the blend color is used with SUBBITMAP_LIBASS only, so it
             //       doesn't matter that we upload garbage for the other formats
@@ -1836,9 +1825,9 @@ static void draw_osd_cb(void *ctx, struct sub_bitmaps *imgs)
                                 (c >> 8) & 0xff, 255 - (c & 0xff) };
 
             write_quad(&va[osd->num_vertices],
-                    b->x, b->y, b->x + b->dw, b->y + b->dh,
-                    pos.x, pos.y, pos.x + b->w, pos.y + b->h,
-                    osd->w, osd->h, color, GL_TEXTURE_2D, 0);
+                    b->start.x, b->start.y, b->dsize.w, b->dsize.h,
+                    pos.x, pos.y, b->size.w, b->size.h,
+                    osd->size.w, osd->size.h, color, GL_TEXTURE_2D, 0);
             osd->num_vertices += VERTICES_PER_QUAD;
         }
     }
@@ -2315,9 +2304,9 @@ static int validate_scaler_opt(struct mp_log *log, const m_option_t *opt,
 // gl_video_resize() should be called when user interaction is done.
 void gl_video_resize_redraw(struct gl_video *p, int w, int h)
 {
-    p->gl->Viewport(p->vp_x, p->vp_y, w, h);
-    p->vp_w = w;
-    p->vp_h = h;
+    p->gl->Viewport(p->vp.start.x, p->vp.start.y, w, h);
+    p->vp.size.w = w;
+    p->vp.size.h = h;
     gl_video_render_frame(p);
 }
 

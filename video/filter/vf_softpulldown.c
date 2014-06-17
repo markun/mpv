@@ -43,7 +43,7 @@ static void copy_pic_field(struct mp_image *dmpi, struct mp_image *mpi, int f)
     for (int p = 0; p < dmpi->num_planes; p++) {
         my_memcpy_pic(dmpi->planes[p] + dmpi->stride[p] * f,
                       mpi->planes[p] + mpi->stride[p] * f,
-                      mpi->plane_w[p], mpi->plane_h[p] / 2,
+                      mpi->plane_size[p].w, mpi->plane_size[p].h / 2,
                       dmpi->stride[p] * 2, mpi->stride[p] * 2);
     }
 }
@@ -57,11 +57,10 @@ static int filter(struct vf_instance *vf, struct mp_image *mpi)
         if (!mpi)
             return 0;
 
-        if (!p->buffer || p->buffer->w != mpi->w || p->buffer->h != mpi->h ||
-            p->buffer->imgfmt != mpi->imgfmt)
+        if (!p->buffer || !mp_size_equals(&p->buffer->size, &mpi->size) || p->buffer->imgfmt != mpi->imgfmt)
         {
             mp_image_unrefp(&p->buffer);
-            p->buffer = mp_image_alloc(mpi->imgfmt, mpi->w, mpi->h);
+            p->buffer = mp_image_alloc(mpi->imgfmt, mpi->size);
             talloc_steal(vf, p->buffer);
             if (!p->buffer)
                 goto failed; // OOM

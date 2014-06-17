@@ -257,7 +257,7 @@ static const char builtin_input_conf[] =
 
 static bool test_rect(struct mp_rect *rc, int x, int y)
 {
-    return x >= rc->x0 && y >= rc->y0 && x < rc->x1 && y < rc->y1;
+    return x >= rc->start.x && y >= rc->start.y && x < rc->end.x && y < rc->end.y;
 }
 
 static int queue_count_cmds(struct cmd_queue *queue)
@@ -1237,7 +1237,7 @@ void mp_input_set_section_mouse_area(struct input_ctx *ictx, char *name,
 {
     input_lock(ictx);
     struct cmd_bind_section *s = get_bind_section(ictx, bstr0(name));
-    s->mouse_area = (struct mp_rect){x0, y0, x1, y1};
+    s->mouse_area = (struct mp_rect){ .start = { x0, y0 }, .end = { x1, y1 } };
     s->mouse_area_set = x0 != x1 && y0 != y1;
     input_unlock(ictx);
 }

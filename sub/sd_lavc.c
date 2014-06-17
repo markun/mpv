@@ -70,36 +70,35 @@ static bool supports_format(const char *format)
     }
 }
 
-static void guess_resolution(enum AVCodecID type, int *w, int *h)
+static void guess_resolution(enum AVCodecID type, struct mp_size *size)
 {
     if (type == AV_CODEC_ID_DVD_SUBTITLE) {
         /* XXX Although the video frame is some size, the SPU frame is
            always maximum size i.e. 720 wide and 576 or 480 high */
         // For HD files in MKV the VobSub resolution can be higher though,
         // see largeres_vobsub.mkv
-        if (*w <= 720 && *h <= 576) {
-            *w = 720;
-            *h = (*h == 480 || *h == 240) ? 480 : 576;
+        if (size->w <= 720 && size->h <= 576) {
+            size->w = 720;
+            size->h = (size->h == 480 || size->h == 240) ? 480 : 576;
         }
     } else {
         // Hope that PGS subs set these and 720/576 works for dvb subs
-        if (!*w)
-            *w = 720;
-        if (!*h)
-            *h = 576;
+        if (!size->w)
+            size->w = 720;
+        if (!size->h)
+            size->h = 576;
     }
 }
 
-static void get_resolution(struct sd *sd, int wh[2])
+static void get_resolution(struct sd *sd, struct mp_size *res)
 {
     struct sd_lavc_priv *priv = sd->priv;
-    wh[0] = priv->avctx->width;
-    wh[1] = priv->avctx->height;
-    if (wh[0] <= 0 || wh[1] <= 0) {
-        wh[0] = priv->video_params.w;
-        wh[1] = priv->video_params.h;
+    res->w = priv->avctx->width;
+    res->h = priv->avctx->height;
+    if (res->w <= 0 || res->h <= 0) {
+        *res = priv->video_params.size;
     }
-    guess_resolution(priv->avctx->codec_id, &wh[0], &wh[1]);
+    guess_resolution(priv->avctx->codec_id, res);
 }
 
 static void set_mp4_vobsub_idx(AVCodecContext *avctx, char *src, int w, int h)
@@ -143,10 +142,10 @@ static int init(struct sd *sd)
     if (!ctx)
         goto error;
     mp_lavc_set_extradata(ctx, sd->extradata, sd->extradata_len);
-    if (sd->extradata_len == 64 && sd->sub_stream_w && sd->sub_stream_h &&
+    if (sd->extradata_len == 64 && sd->sub_stream_size.w && sd->sub_stream_size.h &&
         cid == AV_CODEC_ID_DVD_SUBTITLE)
     {
-        set_mp4_vobsub_idx(ctx, sd->extradata, sd->sub_stream_w, sd->sub_stream_h);
+        set_mp4_vobsub_idx(ctx, sd->extradata, sd->sub_stream_size.w, sd->sub_stream_size.h);
     }
     if (avcodec_open2(ctx, sub_codec, NULL) < 0)
         goto error;
@@ -256,10 +255,8 @@ static void decode(struct sd *sd, struct demux_packet *packet)
         memcpy(img->palette, r->pict.data[1], r->nb_colors * 4);
         b->bitmap = img;
         b->stride = r->pict.linesize[0];
-        b->w = r->w;
-        b->h = r->h;
-        b->x = r->x;
-        b->y = r->y;
+        b->size = (struct mp_size){ r->w, r->h };
+        b->start = (struct mp_pos){ r->x, r->y };
         current->count++;
     }
 }
@@ -300,14 +297,14 @@ static void get_bitmaps(struct sd *sd, struct mp_osd_res d, double pts,
             opts->stretch_dvd_subs) {
         // For DVD subs, try to keep the subtitle PAR at display PAR.
         double par =
-              (priv->video_params.d_w / (double)priv->video_params.d_h)
-            / (priv->video_params.w   / (double)priv->video_params.h);
+              (priv->video_params.dsize.w / (double)priv->video_params.dsize.w)
+            / (priv->video_params.size.w   / (double)priv->video_params.size.h);
         if (isnormal(par))
             video_par = par;
     }
-    int insize[2];
-    get_resolution(sd, insize);
-    osd_rescale_bitmaps(res, insize[0], insize[1], d, video_par);
+    struct mp_size insize;
+    get_resolution(sd, &insize);
+    osd_rescale_bitmaps(res, insize.w, insize.h, d, video_par);
 }
 
 static void reset(struct sd *sd)

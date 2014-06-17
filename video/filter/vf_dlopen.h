@@ -64,15 +64,11 @@ struct vf_dlopen_context {
 
     void (*uninit)(struct vf_dlopen_context *ctx);
 
-    unsigned int in_width;
-    unsigned int in_height;
-    unsigned int in_d_width;
-    unsigned int in_d_height;
+    struct mp_size in_size;
+    struct mp_size in_d_size;
     const char *in_fmt;
-    unsigned int out_width;
-    unsigned int out_height;
-    unsigned int out_d_width;
-    unsigned int out_d_height;
+    struct mp_size out_size;
+    struct mp_size out_d_size;
     const char *out_fmt;
     unsigned int out_cnt;
 

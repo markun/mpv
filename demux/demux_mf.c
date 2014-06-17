@@ -194,8 +194,7 @@ static int demux_open_mf(demuxer_t *demuxer, enum demux_check check)
     sh_video = sh->video;
 
     sh->codec = codec;
-    sh_video->disp_w = 0;
-    sh_video->disp_h = 0;
+    sh_video->disp_size = (struct mp_size){};
     sh_video->fps = demuxer->opts->mf_fps;
 
     mf->sh = sh_video;

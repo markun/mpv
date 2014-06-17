@@ -23,10 +23,10 @@ struct sd {
 
     // Video resolution used for subtitle decoding. Doesn't necessarily match
     // the resolution of the VO, nor does it have to be the OSD resolution.
-    int sub_video_w, sub_video_h;
+    struct mp_size sub_video_size;
 
     // Resolution hints stored in mp4 files.
-    int sub_stream_w, sub_stream_h;
+    struct mp_size sub_stream_size;
 
     // Shared renderer for ASS - done to avoid reloading embedded fonts.
     struct ass_library *ass_library;

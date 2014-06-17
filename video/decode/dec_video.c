@@ -387,13 +387,13 @@ int video_reconfig_filters(struct dec_video *d_video,
     struct sh_video *sh = d_video->header->video;
 
     MP_VERBOSE(d_video, "VIDEO:  %dx%d  %5.3f fps  %5.1f kbps (%4.1f kB/s)\n",
-               p.w, p.h, sh->fps, sh->bitrate / 1000.0,
+               p.size.w, p.size.h, sh->fps, sh->bitrate / 1000.0,
                sh->bitrate / 8000.0);
 
     MP_VERBOSE(d_video, "VDec: vo config request - %d x %d (%s)\n",
-               p.w, p.h, vo_format_name(p.imgfmt));
+               p.size.w, p.size.h, vo_format_name(p.imgfmt));
 
-    float decoder_aspect = p.d_w / (float)p.d_h;
+    float decoder_aspect = p.dsize.w / (float)p.dsize.h;
     if (d_video->initial_decoder_aspect == 0)
         d_video->initial_decoder_aspect = decoder_aspect;
 
@@ -401,7 +401,7 @@ int video_reconfig_filters(struct dec_video *d_video,
     // changes at least once.
     if (d_video->initial_decoder_aspect == decoder_aspect) {
         if (sh->aspect > 0)
-            vf_set_dar(&p.d_w, &p.d_h, p.w, p.h, sh->aspect);
+            vf_set_dar(&p.dsize, p.size, sh->aspect);
     } else {
         // Even if the aspect switches back, don't use container aspect again.
         d_video->initial_decoder_aspect = -1;
@@ -412,14 +412,13 @@ int video_reconfig_filters(struct dec_video *d_video,
         force_aspect = d_video->stream_aspect;
 
     if (force_aspect >= 0.0)
-        vf_set_dar(&p.d_w, &p.d_h, p.w, p.h, force_aspect);
+        vf_set_dar(&p.dsize, p.size, force_aspect);
 
-    if (abs(p.d_w - p.w) >= 4 || abs(p.d_h - p.h) >= 4) {
+    if (abs(p.dsize.w - p.size.w) >= 4 || abs(p.dsize.h - p.size.h) >= 4) {
         MP_VERBOSE(d_video, "Aspect ratio is %.2f:1 - "
                    "scaling to correct movie aspect.\n", sh->aspect);
     } else {
-        p.d_w = p.w;
-        p.d_h = p.h;
+        p.dsize = p.size;
     }
 
     // Apply user overrides
@@ -435,7 +434,7 @@ int video_reconfig_filters(struct dec_video *d_video,
 
     // Time to config libvo!
     MP_VERBOSE(d_video, "VO Config (%dx%d->%dx%d,0x%X)\n",
-               p.w, p.h, p.d_w, p.d_h, p.imgfmt);
+               p.size.w, p.size.h, p.dsize.w, p.dsize.h, p.imgfmt);
 
     if (vf_reconfig(d_video->vfilter, params, &p) < 0) {
         MP_FATAL(d_video, "Cannot initialize video filters.\n");

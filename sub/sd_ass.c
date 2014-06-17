@@ -140,8 +140,8 @@ static void get_bitmaps(struct sd *sd, struct mp_osd_res dim, double pts,
     {
         // Let's use the original video PAR for vsfilter compatibility:
         double par = scale
-            * (ctx->video_params.d_w / (double)ctx->video_params.d_h)
-            / (ctx->video_params.w   / (double)ctx->video_params.h);
+            * (ctx->video_params.dsize.w / (double)ctx->video_params.dsize.h)
+            / (ctx->video_params.size.w   / (double)ctx->video_params.size.h);
         if (isnormal(par))
             scale = par;
     }
@@ -151,7 +151,7 @@ static void get_bitmaps(struct sd *sd, struct mp_osd_res dim, double pts,
     if (!ctx->is_converted && (!opts->ass_style_override ||
                                opts->ass_vsfilter_blur_compat))
     {
-        ass_set_storage_size(renderer, ctx->video_params.w, ctx->video_params.h);
+        ass_set_storage_size(renderer, ctx->video_params.size.w, ctx->video_params.size.h);
     } else {
         ass_set_storage_size(renderer, 0, 0);
     }

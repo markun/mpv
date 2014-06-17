@@ -121,18 +121,18 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
     mp_image_copy_attributes(dmpi, mpi);
 
 
-    ilpack(dmpi->planes[0], mpi->planes, dmpi->stride[0], mpi->stride, mpi->w, mpi->h, vf->priv->pack);
+    ilpack(dmpi->planes[0], mpi->planes, dmpi->stride[0], mpi->stride, mpi->size.w, mpi->size.h, vf->priv->pack);
 
     talloc_free(mpi);
     return dmpi;
 }
 
 static int config(struct vf_instance *vf,
-          int width, int height, int d_width, int d_height,
+          struct mp_size size, struct mp_size dsize,
           unsigned int flags, unsigned int outfmt)
 {
     /* FIXME - also support UYVY output? */
-    return vf_next_config(vf, width, height, d_width, d_height, flags, IMGFMT_YUYV);
+    return vf_next_config(vf, size, dsize, flags, IMGFMT_YUYV);
 }
 
 

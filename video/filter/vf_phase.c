@@ -209,7 +209,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
 
    int pw[MP_MAX_PLANES] = {0};
    for (int p = 0; p < mpi->num_planes; p++)
-       pw[p] = ((mpi->w * mpi->fmt.bpp[p] + 7) / 8) >> mpi->fmt.xs[p];
+       pw[p] = ((mpi->size.w * mpi->fmt.bpp[p] + 7) / 8) >> mpi->fmt.xs[p];
 
    mode=vf->priv->mode;
 
@@ -217,11 +217,11 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
       mode=PROGRESSIVE;
    else
       mode=analyze_plane(vf, vf->priv->buf[0], mpi->planes[0],
-                         pw[0], dmpi->h, pw[0], mpi->stride[0], mode,
+                         pw[0], dmpi->size.h, pw[0], mpi->stride[0], mode,
                          vf->priv->verbose, mpi->fields);
 
    for (int p = 0; p < mpi->num_planes; p++) {
-      do_plane(dmpi->planes[p], mpi->planes[p], pw[p], dmpi->plane_h[p],
+      do_plane(dmpi->planes[p], mpi->planes[p], pw[p], dmpi->plane_size[p].h,
                dmpi->stride[p], mpi->stride[p],
                &vf->priv->buf[p], mode);
    }

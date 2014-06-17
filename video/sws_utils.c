@@ -161,8 +161,7 @@ int mp_sws_reinit(struct mp_sws_context *ctx)
     struct mp_image_params *dst = &ctx->dst;
 
     // Neutralize unsupported or ignored parameters.
-    src->d_w = dst->d_w = 0;
-    src->d_h = dst->d_h = 0;
+    src->dsize = dst->dsize = (struct mp_size){};
     src->outputlevels = dst->outputlevels = MP_CSP_LEVELS_AUTO;
 
     if (cache_valid(ctx))
@@ -209,12 +208,12 @@ int mp_sws_reinit(struct mp_sws_context *ctx)
 
     av_opt_set_int(ctx->sws, "sws_flags", ctx->flags, 0);
 
-    av_opt_set_int(ctx->sws, "srcw", src->w, 0);
-    av_opt_set_int(ctx->sws, "srch", src->h, 0);
+    av_opt_set_int(ctx->sws, "srcw", src->size.w, 0);
+    av_opt_set_int(ctx->sws, "srch", src->size.h, 0);
     av_opt_set_int(ctx->sws, "src_format", s_fmt, 0);
 
-    av_opt_set_int(ctx->sws, "dstw", dst->w, 0);
-    av_opt_set_int(ctx->sws, "dsth", dst->h, 0);
+    av_opt_set_int(ctx->sws, "dstw", dst->size.w, 0);
+    av_opt_set_int(ctx->sws, "dsth", dst->size.h, 0);
     av_opt_set_int(ctx->sws, "dst_format", d_fmt, 0);
 
     av_opt_set_double(ctx->sws, "param0", ctx->params[0], 0);
@@ -264,7 +263,7 @@ int mp_sws_scale(struct mp_sws_context *ctx, struct mp_image *dst,
     }
 
     sws_scale(ctx->sws, (const uint8_t *const *) src->planes, src->stride,
-              0, src->h, dst->planes, dst->stride);
+              0, src->size.h, dst->planes, dst->stride);
     return 0;
 }
 

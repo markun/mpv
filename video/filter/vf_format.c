@@ -49,10 +49,9 @@ static int query_format(struct vf_instance *vf, unsigned int fmt){
     return 0;
 }
 
-static int config(struct vf_instance *vf, int width, int height,
-                  int d_width, int d_height,
+static int config(struct vf_instance *vf, struct mp_size size, struct mp_size dsize,
                   unsigned flags, unsigned outfmt){
-    return vf_next_config(vf, width, height, d_width, d_height, flags, vf->priv->outfmt);
+    return vf_next_config(vf, size, dsize, flags, vf->priv->outfmt);
 }
 
 static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)

@@ -180,7 +180,7 @@ int reinit_video_chain(struct MPContext *mpctx)
 
     MP_VERBOSE(mpctx, "[V] fourcc:0x%X  size:%dx%d  fps:%5.3f\n",
                sh->format,
-               sh->video->disp_w, sh->video->disp_h,
+               sh->video->disp_size.w, sh->video->disp_size.h,
                sh->video->fps);
 
     double ar = -1.0;
@@ -485,7 +485,7 @@ static int video_output_image(struct MPContext *mpctx, double endpts,
 
         const struct vo_driver *info = mpctx->video_out->driver;
         MP_INFO(mpctx, "VO: [%s] %dx%d => %dx%d %s\n",
-                info->name, p.w, p.h, p.d_w, p.d_h, vo_format_name(p.imgfmt));
+                info->name, p.size.w, p.size.h, p.dsize.w, p.dsize.h, vo_format_name(p.imgfmt));
         MP_VERBOSE(mpctx, "VO: Description: %s\n", info->description);
 
         int vo_r = vo_reconfig(vo, &p, 0);

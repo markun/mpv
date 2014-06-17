@@ -21,36 +21,36 @@
 
 static void egl_resize(struct vo_wayland_state *wl)
 {
-    int32_t x = wl->window.sh_x;
-    int32_t y = wl->window.sh_y;
-    int32_t width = wl->window.sh_width;
-    int32_t height = wl->window.sh_height;
+    int32_t x = wl->window.sh_pos.x;
+    int32_t y = wl->window.sh_pos.y;
+    int32_t width = wl->window.sh_size.w;
+    int32_t height = wl->window.sh_size.h;
 
     // get the real size of the window
     // this improves moving the window while resizing it
     wl_egl_window_get_attached_size(wl->egl_context.egl_window,
-                                    &wl->window.width,
-                                    &wl->window.height);
+                                    &wl->window.size.w,
+                                    &wl->window.size.h);
 
-    MP_VERBOSE(wl, "resizing %dx%d -> %dx%d\n", wl->window.width,
-                                                wl->window.height,
+    MP_VERBOSE(wl, "resizing %dx%d -> %dx%d\n", wl->window.size.w,
+                                                wl->window.size.h,
                                                 width,
                                                 height);
 
     if (x != 0)
-        x = wl->window.width - width;
+        x = wl->window.size.w - width;
 
     if (y != 0)
-        y = wl->window.height - height;
+        y = wl->window.size.h - height;
 
     wl_egl_window_resize(wl->egl_context.egl_window, width, height, x, y);
 
-    wl->window.width = width;
-    wl->window.height = height;
+    wl->window.size.w = width;
+    wl->window.size.h = height;
 
     /* set size for mplayer */
-    wl->vo->dwidth = wl->window.width;
-    wl->vo->dheight = wl->window.height;
+    wl->vo->dsize.w = wl->window.size.w;
+    wl->vo->dsize.h = wl->window.size.h;
 
     wl->vo->want_redraw = true;
     wl->window.events = 0;
@@ -128,8 +128,8 @@ static bool egl_create_context(struct vo_wayland_state *wl,
 static void egl_create_window(struct vo_wayland_state *wl)
 {
     wl->egl_context.egl_window = wl_egl_window_create(wl->window.video_surface,
-                                                      wl->window.width,
-                                                      wl->window.height);
+                                                      wl->window.size.w,
+                                                      wl->window.size.h);
 
     wl->egl_context.egl_surface = eglCreateWindowSurface(wl->egl_context.egl.dpy,
                                                          wl->egl_context.egl.conf,

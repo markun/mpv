@@ -186,7 +186,7 @@ static struct mp_image *create_ref(struct mp_vdpau_ctx *ctx, int index)
                                 release_decoder_surface);
     if (res) {
         mp_image_setfmt(res, e->rgb ? IMGFMT_VDPAU_OUTPUT : IMGFMT_VDPAU);
-        mp_image_set_size(res, e->w, e->h);
+        mp_image_set_size(res, (struct mp_size){ e->w, e->h });
         res->planes[0] = (void *)"dummy"; // must be non-NULL, otherwise arbitrary
         res->planes[3] = (void *)(intptr_t)(e->rgb ? e->osurface : e->surface);
     }
@@ -405,7 +405,7 @@ struct mp_image *mp_vdpau_upload_video_surface(struct mp_vdpau_ctx *ctx,
         return NULL;
 
     struct mp_image *hwmpi =
-        mp_vdpau_get_surface(ctx, chroma, rgbafmt, rgb, mpi->w, mpi->h);
+        mp_vdpau_get_surface(ctx, chroma, rgbafmt, rgb, mpi->size.w, mpi->size.h);
     if (!hwmpi)
         return NULL;
 

@@ -41,17 +41,13 @@ static struct vf_priv_s {
     // e.g. aspect changes and with only aspect specified on the command line,
     // where we would otherwise use the values calculated for a different aspect
     // instead of recalculating them again.
-    int cfg_exp_w, cfg_exp_h;
-    int cfg_exp_x, cfg_exp_y;
-    int exp_w,exp_h;
-    int exp_x,exp_y;
+    struct mp_extend cfg_exp;
+    struct mp_extend exp;
     double aspect;
     int round;
 } const vf_priv_dflt = {
-  -1,-1,
-  -1,-1,
-  -1,-1,
-  -1,-1,
+  { { -1, -1 }, {-1, -1} },
+  { { -1, -1 }, {-1, -1} },
   0.,
   1,
 };
@@ -59,59 +55,56 @@ static struct vf_priv_s {
 //===========================================================================//
 
 static int config(struct vf_instance *vf,
-        int width, int height, int d_width, int d_height,
+        struct mp_size size, struct mp_size dsize,
         unsigned int flags, unsigned int outfmt)
 {
-    vf->priv->exp_x = vf->priv->cfg_exp_x;
-    vf->priv->exp_y = vf->priv->cfg_exp_y;
-    vf->priv->exp_w = vf->priv->cfg_exp_w;
-    vf->priv->exp_h = vf->priv->cfg_exp_h;
+    struct mp_extend *exp = &vf->priv->exp;
+    *exp = vf->priv->cfg_exp;
     // calculate the missing parameters:
 #if 0
-    if(vf->priv->exp_w<width) vf->priv->exp_w=width;
-    if(vf->priv->exp_h<height) vf->priv->exp_h=height;
+    if(exp->size.w<size.w) exp->size.w=size.w;
+    if(exp->size.h<size.h) exp->size.h=size.h;
 #else
-    if ( vf->priv->exp_w == -1 ) vf->priv->exp_w=width;
-      else if (vf->priv->exp_w < -1 ) vf->priv->exp_w=width - vf->priv->exp_w;
-        else if ( vf->priv->exp_w<width ) vf->priv->exp_w=width;
-    if ( vf->priv->exp_h == -1 ) vf->priv->exp_h=height;
-      else if ( vf->priv->exp_h < -1 ) vf->priv->exp_h=height - vf->priv->exp_h;
-        else if( vf->priv->exp_h<height ) vf->priv->exp_h=height;
+    if ( exp->size.w == -1 ) exp->size.w=size.w;
+      else if (exp->size.w < -1 ) exp->size.w=size.w - exp->size.w;
+        else if ( exp->size.w<size.w ) exp->size.w=size.w;
+    if ( exp->size.h == -1 ) exp->size.h=size.h;
+      else if ( exp->size.h < -1 ) exp->size.h=size.h - exp->size.h;
+        else if( exp->size.h<size.h ) exp->size.h=size.h;
 #endif
     if (vf->priv->aspect) {
         float adjusted_aspect = vf->priv->aspect;
-        adjusted_aspect *= ((double)width/height) / ((double)d_width/d_height);
-        if (vf->priv->exp_h < vf->priv->exp_w / adjusted_aspect) {
-            vf->priv->exp_h = vf->priv->exp_w / adjusted_aspect + 0.5;
+        adjusted_aspect *= ((double)size.w/size.h) / ((double)dsize.w/dsize.h);
+        if (exp->size.h < exp->size.w / adjusted_aspect) {
+            exp->size.h = exp->size.w / adjusted_aspect + 0.5;
         } else {
-            vf->priv->exp_w = vf->priv->exp_h * adjusted_aspect + 0.5;
+            exp->size.w = exp->size.h * adjusted_aspect + 0.5;
         }
     }
     if (vf->priv->round > 1) { // round up.
-        vf->priv->exp_w = (1 + (vf->priv->exp_w - 1) / vf->priv->round) * vf->priv->round;
-        vf->priv->exp_h = (1 + (vf->priv->exp_h - 1) / vf->priv->round) * vf->priv->round;
+        exp->size.w = (1 + (exp->size.w - 1) / vf->priv->round) * vf->priv->round;
+        exp->size.h = (1 + (exp->size.h - 1) / vf->priv->round) * vf->priv->round;
     }
 
-    if(vf->priv->exp_x<0 || vf->priv->exp_x+width>vf->priv->exp_w) vf->priv->exp_x=(vf->priv->exp_w-width)/2;
-    if(vf->priv->exp_y<0 || vf->priv->exp_y+height>vf->priv->exp_h) vf->priv->exp_y=(vf->priv->exp_h-height)/2;
+    if(exp->start.x<0 || exp->start.x+size.w>exp->size.w) exp->start.x=(exp->size.w-size.w)/2;
+    if(exp->start.y<0 || exp->start.y+size.h>exp->size.h) exp->start.y=(exp->size.h-size.h)/2;
 
     struct mp_imgfmt_desc fmt = mp_imgfmt_get_desc(outfmt);
 
-    vf->priv->exp_x = MP_ALIGN_DOWN(vf->priv->exp_x, fmt.align_x);
-    vf->priv->exp_y = MP_ALIGN_DOWN(vf->priv->exp_y, fmt.align_y);
+    exp->start.x = MP_ALIGN_DOWN(exp->start.x, fmt.align_x);
+    exp->start.y = MP_ALIGN_DOWN(exp->start.y, fmt.align_y);
 
-    vf_rescale_dsize(&d_width, &d_height, width, height,
-                     vf->priv->exp_w, vf->priv->exp_h);
+    vf_rescale_dsize(&dsize, size, exp->size);
 
-    return vf_next_config(vf,vf->priv->exp_w,vf->priv->exp_h,d_width,d_height,flags,outfmt);
+    return vf_next_config(vf,exp->size,dsize,flags,outfmt);
 }
 
 static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
 {
-    int e_x = vf->priv->exp_x, e_y = vf->priv->exp_y;
-    int e_w = vf->priv->exp_w, e_h = vf->priv->exp_h;
+    int e_x = vf->priv->exp.start.x, e_y = vf->priv->exp.start.y;
+    int e_w = vf->priv->exp.size.w, e_h = vf->priv->exp.size.h;
 
-    if (e_x == 0 && e_y == 0 && e_w == mpi->w && e_h == mpi->h)
+    if (e_x == 0 && e_y == 0 && e_w == mpi->size.w && e_h == mpi->size.h)
         return mpi;
 
     struct mp_image *dmpi = vf_alloc_out_image(vf);
@@ -120,11 +113,11 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
     mp_image_copy_attributes(dmpi, mpi);
 
     struct mp_image cropped = *dmpi;
-    mp_image_crop(&cropped, e_x, e_y, e_x + mpi->w, e_y + mpi->h);
+    mp_image_crop(&cropped, e_x, e_y, e_x + mpi->size.w, e_y + mpi->size.h);
     mp_image_copy(&cropped, mpi);
 
-    int e_x2 = e_x + MP_ALIGN_DOWN(mpi->w, mpi->fmt.align_x);
-    int e_y2 = e_y + MP_ALIGN_DOWN(mpi->h, mpi->fmt.align_y);
+    int e_x2 = e_x + MP_ALIGN_DOWN(mpi->size.w, mpi->fmt.align_x);
+    int e_y2 = e_y + MP_ALIGN_DOWN(mpi->size.h, mpi->fmt.align_y);
 
     // top border (over the full width)
     mp_image_clear(dmpi, 0, 0, e_w, e_y);
@@ -151,10 +144,10 @@ static int vf_open(vf_instance_t *vf){
     vf->query_format=query_format;
     vf->filter=filter;
     MP_INFO(vf, "Expand: %d x %d, %d ; %d, aspect: %f, round: %d\n",
-    vf->priv->cfg_exp_w,
-    vf->priv->cfg_exp_h,
-    vf->priv->cfg_exp_x,
-    vf->priv->cfg_exp_y,
+    vf->priv->cfg_exp.size.w,
+    vf->priv->cfg_exp.size.h,
+    vf->priv->cfg_exp.start.x,
+    vf->priv->cfg_exp.start.y,
     vf->priv->aspect,
     vf->priv->round);
     return 1;
@@ -162,10 +155,10 @@ static int vf_open(vf_instance_t *vf){
 
 #define OPT_BASE_STRUCT struct vf_priv_s
 static const m_option_t vf_opts_fields[] = {
-    OPT_INT("w", cfg_exp_w, 0),
-    OPT_INT("h", cfg_exp_h, 0),
-    OPT_INT("x", cfg_exp_x, M_OPT_MIN, .min = -1),
-    OPT_INT("y", cfg_exp_y, M_OPT_MIN, .min = -1),
+    OPT_INT("w", cfg_exp.size.w, 0),
+    OPT_INT("h", cfg_exp.size.h, 0),
+    OPT_INT("x", cfg_exp.start.x, M_OPT_MIN, .min = -1),
+    OPT_INT("y", cfg_exp.start.y, M_OPT_MIN, .min = -1),
     OPT_DOUBLE("aspect", aspect, M_OPT_MIN, .min = 0),
     OPT_INT("round", round, M_OPT_MIN, .min = 1),
     {0}

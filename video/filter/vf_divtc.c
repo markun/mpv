@@ -157,8 +157,8 @@ static int imgop(int(*planeop)(unsigned char *, unsigned char *,
        int sum = 0;
        for (int p = 0; p < dst->num_planes; p++) {
            sum += planeop(dst->planes[p], src ? src->planes[p] : NULL,
-                          (dst->w * dst->fmt.bytes[p]) >> dst->fmt.xs[p],
-                          dst->plane_h[p], dst->stride[p],
+                          (dst->size.w * dst->fmt.bytes[p]) >> dst->fmt.xs[p],
+                          dst->plane_size[p].h, dst->stride[p],
                           src ? src->stride[p] : 0, arg);
        }
        return sum;
@@ -215,11 +215,10 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
    unsigned int checksum;
    double d;
 
-   if (!p->buffer || p->buffer->w != mpi->w || p->buffer->h != mpi->h ||
-       p->buffer->imgfmt != mpi->imgfmt)
+   if (!p->buffer || !mp_size_equals(&p->buffer->size, &mpi->size) || p->buffer->imgfmt != mpi->imgfmt)
    {
        mp_image_unrefp(&p->buffer);
-       p->buffer = mp_image_alloc(mpi->imgfmt, mpi->w, mpi->h);
+       p->buffer = mp_image_alloc(mpi->imgfmt, mpi->size);
        talloc_steal(vf, p->buffer);
        if (!p->buffer)
            return NULL; // skip on OOM

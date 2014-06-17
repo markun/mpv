@@ -45,48 +45,45 @@
 struct vf_priv_s {
     int opt_top_margin, opt_bottom_margin;
 
-    int outh, outw;
+    struct mp_size out_size;
 
     struct osd_state *osd;
     struct mp_osd_res dim;
 };
 
 static int config(struct vf_instance *vf,
-                  int width, int height, int d_width, int d_height,
+                  struct mp_size size, struct mp_size dsize,
                   unsigned int flags, unsigned int outfmt)
 {
-    vf->priv->outh = height + vf->priv->opt_top_margin +
+
+    vf->priv->out_size = size;
+    vf->priv->out_size.h += vf->priv->opt_top_margin +
                      vf->priv->opt_bottom_margin;
-    vf->priv->outw = width;
 
-    double dar = (double)d_width / d_height;
-    double sar = (double)width / height;
+    double dar = (double)dsize.w / dsize.h;
+    double sar = (double)size.w / size.h;
 
-    vf_rescale_dsize(&d_width, &d_height, width, height,
-                     vf->priv->outw, vf->priv->outh);
+    vf_rescale_dsize(&dsize, size, vf->priv->out_size);
 
     vf->priv->dim = (struct mp_osd_res) {
-        .w = vf->priv->outw,
-        .h = vf->priv->outh,
-        .mt = vf->priv->opt_top_margin,
-        .mb = vf->priv->opt_bottom_margin,
+        .size = vf->priv->out_size,
+        .margin = { .t = vf->priv->opt_top_margin, .b = vf->priv->opt_bottom_margin },
         .display_par = sar / dar,
     };
 
-    return vf_next_config(vf, vf->priv->outw, vf->priv->outh, d_width,
-                          d_height, flags, outfmt);
+    return vf_next_config(vf, vf->priv->out_size, dsize, flags, outfmt);
 }
 
 static void prepare_image(struct vf_instance *vf, struct mp_image *dmpi,
                           struct mp_image *mpi)
 {
     int y1 = MP_ALIGN_DOWN(vf->priv->opt_top_margin, mpi->fmt.align_y);
-    int y2 = MP_ALIGN_DOWN(y1 + mpi->h, mpi->fmt.align_y);
+    int y2 = MP_ALIGN_DOWN(y1 + mpi->size.h, mpi->fmt.align_y);
     struct mp_image cropped = *dmpi;
-    mp_image_crop(&cropped, 0, y1, mpi->w, y1 + mpi->h);
+    mp_image_crop(&cropped, 0, y1, mpi->size.w, y1 + mpi->size.h);
     mp_image_copy(&cropped, mpi);
-    mp_image_clear(dmpi, 0, 0, dmpi->w, y1);
-    mp_image_clear(dmpi, 0, y2, dmpi->w, vf->priv->outh);
+    mp_image_clear(dmpi, 0, 0, dmpi->size.w, y1);
+    mp_image_clear(dmpi, 0, y2, dmpi->size.w, vf->priv->out_size.h);
 }
 
 static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)

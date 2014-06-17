@@ -296,11 +296,10 @@ static char *gen_fname(screenshot_ctx *ctx, const char *file_ext)
 
 static void add_subs(struct MPContext *mpctx, struct mp_image *image)
 {
-    double sar = (double)image->w / image->h;
-    double dar = (double)image->params.d_w / image->params.d_h;
+    double sar = (double)image->size.w / image->size.h;
+    double dar = (double)image->params.dsize.w / image->params.dsize.h;
     struct mp_osd_res res = {
-        .w = image->w,
-        .h = image->h,
+        .size = image->size,
         .display_par = sar / dar,
     };
 

@@ -131,9 +131,6 @@ static void vo_x11_setlayer(struct vo *vo, bool ontop);
 
 #define XA(x11, s) (XInternAtom((x11)->display, # s, False))
 
-#define RC_W(rc) ((rc).x1 - (rc).x0)
-#define RC_H(rc) ((rc).y1 - (rc).y0)
-
 // format = 8 (unsigned char), 16 (short), 32 (long, even on LP64 systems)
 // *out_nitems = returned number of items of requested format
 static void *x11_get_property(struct vo_x11_state *x11, Window w, Atom property,
@@ -330,7 +327,7 @@ static void vo_x11_update_screeninfo(struct vo *vo)
     struct mp_vo_opts *opts = vo->opts;
     struct vo_x11_state *x11 = vo->x11;
     bool all_screens = opts->fullscreen && opts->fsscreen_id == -2;
-    x11->screenrc = (struct mp_rect){.x1 = x11->ws_width, .y1 = x11->ws_height};
+    x11->screenrc = (struct mp_extend){ .size = {x11->ws_size.w, x11->ws_size.h} };
 #if HAVE_XINERAMA
     if (opts->screen_id >= -1 && XineramaIsActive(x11->display) && !all_screens)
     {
@@ -342,8 +339,8 @@ static void vo_x11_update_screeninfo(struct vo *vo)
         if (screen >= num_screens)
             screen = num_screens - 1;
         if (screen == -1) {
-            int x = x11->winrc.x0 + RC_W(x11->winrc) / 2;
-            int y = x11->winrc.y0 + RC_H(x11->winrc) / 2;
+            int x = x11->winrc.start.x + x11->winrc.size.w / 2;
+            int y = x11->winrc.start.y + x11->winrc.size.h / 2;
             for (screen = num_screens - 1; screen > 0; screen--) {
                 int left = screens[screen].x_org;
                 int right = left + screens[screen].width;
@@ -355,11 +352,9 @@ static void vo_x11_update_screeninfo(struct vo *vo)
         }
         if (screen < 0)
             screen = 0;
-        x11->screenrc = (struct mp_rect){
-            .x0 = screens[screen].x_org,
-            .y0 = screens[screen].y_org,
-            .x1 = screens[screen].x_org + screens[screen].width,
-            .y1 = screens[screen].y_org + screens[screen].height,
+        x11->screenrc = (struct mp_extend){
+            {screens[screen].x_org, screens[screen].y_org},
+            {screens[screen].width, screens[screen].height},
         };
 
         XFree(screens);
@@ -438,8 +433,8 @@ int vo_x11_init(struct vo *vo)
     if (!x11->xim)
         MP_WARN(x11, "XOpenIM() failed. Unicode input will not work.\n");
 
-    x11->ws_width = DisplayWidth(x11->display, x11->screen);
-    x11->ws_height = DisplayHeight(x11->display, x11->screen);
+    x11->ws_size.w = DisplayWidth(x11->display, x11->screen);
+    x11->ws_size.h = DisplayHeight(x11->display, x11->screen);
 
     if (strncmp(dispName, "unix:", 5) == 0)
         dispName += 4;
@@ -447,7 +442,7 @@ int vo_x11_init(struct vo *vo)
         dispName += 9;
     x11->display_is_local = dispName[0] == ':' && atoi(dispName + 1) < 10;
     MP_VERBOSE(x11, "X11 running at %dx%d (\"%s\" => %s display)\n",
-               x11->ws_width, x11->ws_height, dispName,
+               x11->ws_size.w, x11->ws_size.h, dispName,
                x11->display_is_local ? "local" : "remote");
 
     x11->wm_type = vo_wm_detect(vo);
@@ -738,9 +733,8 @@ static void update_vo_size(struct vo *vo)
 {
     struct vo_x11_state *x11 = vo->x11;
 
-    if (RC_W(x11->winrc) != vo->dwidth || RC_H(x11->winrc) != vo->dheight) {
-        vo->dwidth = RC_W(x11->winrc);
-        vo->dheight = RC_H(x11->winrc);
+    if (x11->winrc.size.w != vo->dsize.w || x11->winrc.size.h != vo->dsize.h) {
+        vo->dsize = x11->winrc.size;
         x11->pending_vo_events |= VO_EVENT_RESIZE;
     }
 }
@@ -779,8 +773,8 @@ int vo_x11_check_events(struct vo *vo)
             vo_x11_update_geometry(vo);
             if (Event.xconfigure.window == vo->opts->WinID) {
                 XMoveResizeWindow(x11->display, x11->window,
-                                  x11->winrc.x0, x11->winrc.y0,
-                                  RC_W(x11->winrc), RC_H(x11->winrc));
+                                  x11->winrc.start.x, x11->winrc.start.y,
+                                  x11->winrc.size.w, x11->winrc.size.h);
             }
             break;
         case KeyPress: {
@@ -891,7 +885,7 @@ int vo_x11_check_events(struct vo *vo)
     return ret;
 }
 
-static void vo_x11_sizehint(struct vo *vo, struct mp_rect rc, bool override_pos)
+static void vo_x11_sizehint(struct vo *vo, struct mp_extend rc, bool override_pos)
 {
     struct mp_vo_opts *opts = vo->opts;
     struct vo_x11_state *x11 = vo->x11;
@@ -910,10 +904,10 @@ static void vo_x11_sizehint(struct vo *vo, struct mp_rect rc, bool override_pos)
         return; // OOM
 
     hint->flags |= PSize | (force_pos ? PPosition : 0);
-    hint->x = rc.x0;
-    hint->y = rc.y0;
-    hint->width = RC_W(rc);
-    hint->height = RC_H(rc);
+    hint->x = rc.start.x;
+    hint->y = rc.start.y;
+    hint->width = rc.size.w;
+    hint->height = rc.size.h;
     hint->max_width = 0;
     hint->max_height = 0;
 
@@ -940,12 +934,11 @@ static void vo_x11_sizehint(struct vo *vo, struct mp_rect rc, bool override_pos)
 }
 
 static void vo_x11_move_resize(struct vo *vo, bool move, bool resize,
-                               struct mp_rect rc)
+                               struct mp_extend rc)
 {
     if (!vo->x11->window)
         return;
-    int w = RC_W(rc), h = RC_H(rc);
-    XWindowChanges req = {.x = rc.x0, .y = rc.y0, .width = w, .height = h};
+    XWindowChanges req = {.x = rc.start.x, .y = rc.start.y, .width = rc.size.w, .height = rc.size.h};
     unsigned mask = (move ? CWX | CWY : 0) | (resize ? CWWidth | CWHeight : 0);
     if (mask)
         XConfigureWindow(vo->x11->display, vo->x11->window, mask, &req);
@@ -1091,7 +1084,7 @@ static void vo_x11_set_wm_icon(struct vo_x11_state *x11)
 }
 
 static void vo_x11_create_window(struct vo *vo, XVisualInfo *vis,
-                                 struct mp_rect rc)
+                                 struct mp_extend rc)
 {
     struct vo_x11_state *x11 = vo->x11;
 
@@ -1120,7 +1113,7 @@ static void vo_x11_create_window(struct vo *vo, XVisualInfo *vis,
     Window parent = vo->opts->WinID >= 0 ? vo->opts->WinID : x11->rootwin;
 
     x11->window =
-        XCreateWindow(x11->display, parent, rc.x0, rc.y0, RC_W(rc), RC_H(rc), 0,
+        XCreateWindow(x11->display, parent, rc.start.x, rc.start.y, rc.size.w, rc.size.h, 0,
                       vis->depth, CopyFromParent, vis->visual, xswamask, &xswa);
     Atom protos[1] = {XA(x11, WM_DELETE_WINDOW)};
     XSetWMProtocols(x11->display, x11->window, protos, 1);
@@ -1145,7 +1138,7 @@ static void vo_x11_create_window(struct vo *vo, XVisualInfo *vis,
     vo_x11_dnd_init_window(vo);
 }
 
-static void vo_x11_map_window(struct vo *vo, struct mp_rect rc)
+static void vo_x11_map_window(struct vo *vo, struct mp_extend rc)
 {
     struct vo_x11_state *x11 = vo->x11;
 
@@ -1183,7 +1176,7 @@ static void vo_x11_map_window(struct vo *vo, struct mp_rect rc)
     XMapWindow(x11->display, x11->window);
 }
 
-static void vo_x11_highlevel_resize(struct vo *vo, struct mp_rect rc)
+static void vo_x11_highlevel_resize(struct vo *vo, struct mp_extend rc)
 {
     struct mp_vo_opts *opts = vo->opts;
     struct vo_x11_state *x11 = vo->x11;
@@ -1192,8 +1185,7 @@ static void vo_x11_highlevel_resize(struct vo *vo, struct mp_rect rc)
     if (reset_pos) {
         x11->nofsrc = rc;
     } else {
-        x11->nofsrc.x1 = x11->nofsrc.x0 + RC_W(rc);
-        x11->nofsrc.y1 = x11->nofsrc.y0 + RC_H(rc);
+        x11->nofsrc.size = rc.size;
     }
 
     if (opts->fullscreen) {
@@ -1239,7 +1231,7 @@ void vo_x11_config_vo_window(struct vo *vo, XVisualInfo *vis, int flags,
     vo_calc_window_geometry(vo, &x11->screenrc, &geo);
     vo_apply_window_geometry(vo, &geo);
 
-    struct mp_rect rc = geo.win;
+    struct mp_extend rc = geo.win;
 
     if (opts->WinID >= 0) {
         if (opts->WinID == 0) {
@@ -1260,9 +1252,8 @@ void vo_x11_config_vo_window(struct vo *vo, XVisualInfo *vis, int flags,
     if (flags & VOFLAG_HIDDEN)
         return;
 
-    bool reset_size = x11->old_dw != RC_W(rc) || x11->old_dh != RC_H(rc);
-    x11->old_dw = RC_W(rc);
-    x11->old_dh = RC_H(rc);
+    bool reset_size = !mp_size_equals(&x11->old_dsize, &rc.size);
+    x11->old_dsize = rc.size;
 
     if (x11->window_hidden) {
         x11->nofsrc = rc;
@@ -1288,26 +1279,27 @@ static void fill_rect(struct vo *vo, GC gc, int x0, int y0, int x1, int y1)
 
     x0 = MPMAX(x0, 0);
     y0 = MPMAX(y0, 0);
-    x1 = MPMIN(x1, RC_W(x11->winrc));
-    y1 = MPMIN(y1, RC_H(x11->winrc));
+    x1 = MPMIN(x1, x11->winrc.size.w);
+    y1 = MPMIN(y1, x11->winrc.size.h);
 
     if (x11->window && x1 > x0 && y1 > y0)
         XFillRectangle(x11->display, x11->window, gc, x0, y0, x1 - x0, y1 - y0);
 }
 
 // Clear everything outside of rc with the background color
-void vo_x11_clear_background(struct vo *vo, const struct mp_rect *rc)
+void vo_x11_clear_background(struct vo *vo, const struct mp_extend *ext)
 {
     struct vo_x11_state *x11 = vo->x11;
     GC gc = x11->f_gc;
 
-    int w = RC_W(x11->winrc);
-    int h = RC_H(x11->winrc);
+    int w = x11->winrc.size.w;
+    int h = x11->winrc.size.h;
+    struct mp_rect rc = mp_extend2rect(ext);
 
-    fill_rect(vo, gc, 0,      0,      w,      rc->y0); // top
-    fill_rect(vo, gc, 0,      rc->y1, w,      h);      // bottom
-    fill_rect(vo, gc, 0,      rc->y0, rc->x0, rc->y1); // left
-    fill_rect(vo, gc, rc->x1, rc->y0, w,      rc->y1); // right
+    fill_rect(vo, gc, 0,        0,          w,          rc.start.y); // top
+    fill_rect(vo, gc, 0,        rc.end.y,   w,          h);        // bottom
+    fill_rect(vo, gc, 0,        rc.start.y, rc.start.x, rc.end.y); // left
+    fill_rect(vo, gc, rc.end.x, rc.start.y, w,          rc.end.y); // right
 
     XFlush(x11->display);
 }
@@ -1374,7 +1366,7 @@ static void vo_x11_update_geometry(struct vo *vo)
         XTranslateCoordinates(x11->display, x11->window, x11->rootwin, 0, 0,
                               &x, &y, &dummy_win);
     }
-    x11->winrc = (struct mp_rect){x, y, x + w, y + h};
+    x11->winrc = (struct mp_extend){{x, y}, {w, h}};
 }
 
 static void vo_x11_fullscreen(struct vo *vo)
@@ -1404,7 +1396,7 @@ static void vo_x11_fullscreen(struct vo *vo)
                                    x11->nofsrc);
         }
     } else {
-        struct mp_rect rc = x11->nofsrc;
+        struct mp_extend rc = x11->nofsrc;
         if (x11->fs) {
             vo_x11_update_screeninfo(vo);
             rc = x11->screenrc;
@@ -1413,8 +1405,7 @@ static void vo_x11_fullscreen(struct vo *vo)
         vo_x11_decoration(vo, opts->border && !x11->fs);
         vo_x11_sizehint(vo, rc, true);
 
-        XMoveResizeWindow(x11->display, x11->window, rc.x0, rc.y0,
-                          RC_W(rc), RC_H(rc));
+        XMoveResizeWindow(x11->display, x11->window, rc.start.x, rc.start.y, rc.size.w, rc.size.h);
 
         vo_x11_setlayer(vo, x11->fs || opts->ontop);
 
@@ -1459,20 +1450,18 @@ int vo_x11_control(struct vo *vo, int *events, int request, void *arg)
         *events |= VO_EVENT_RESIZE;
         return VO_TRUE;
     case VOCTRL_GET_WINDOW_SIZE: {
-        int *s = arg;
+        struct mp_size *size = arg;
         if (!x11->window)
             return VO_FALSE;
-        s[0] = x11->fs ? RC_W(x11->nofsrc) : RC_W(x11->winrc);
-        s[1] = x11->fs ? RC_H(x11->nofsrc) : RC_H(x11->winrc);
+        *size = x11->fs ? x11->nofsrc.size : x11->winrc.size;
         return VO_TRUE;
     }
     case VOCTRL_SET_WINDOW_SIZE: {
-        int *s = arg;
+        struct mp_size *size = arg;
         if (!x11->window)
             return VO_FALSE;
-        struct mp_rect rc = x11->winrc;
-        rc.x1 = rc.x0 + s[0];
-        rc.y1 = rc.y0 + s[1];
+        struct mp_extend rc = x11->winrc;
+        rc.size = *size;
         vo_x11_highlevel_resize(vo, rc);
         return VO_TRUE;
     }

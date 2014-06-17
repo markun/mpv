@@ -188,11 +188,11 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *src)
   if (skip)
       return src;
 
-  if ((eq2->buf_w[0] != src->w) || (eq2->buf_h[0] != src->h)) {
-    eq2->buf_w[0] = src->w;
-    eq2->buf_h[0] = src->h;
-      eq2->buf_w[1] = eq2->buf_w[2] = src->w >> src->chroma_x_shift;
-      eq2->buf_h[1] = eq2->buf_h[2] = src->h >> src->chroma_y_shift;
+  if ((eq2->buf_w[0] != src->size.w) || (eq2->buf_h[0] != src->size.h)) {
+    eq2->buf_w[0] = src->size.w;
+    eq2->buf_h[0] = src->size.h;
+      eq2->buf_w[1] = eq2->buf_w[2] = src->size.w >> src->chroma_shift.x;
+      eq2->buf_h[1] = eq2->buf_h[2] = src->size.h >> src->chroma_shift.y;
     img_n = eq2->buf_w[0]*eq2->buf_h[0];
     if(src->num_planes>1){
       img_c = eq2->buf_w[1]*eq2->buf_h[1];

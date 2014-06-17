@@ -128,8 +128,8 @@ ASS_Track *mp_ass_default_track(ASS_Library *library, struct MPOpts *opts)
 void mp_ass_configure(ASS_Renderer *priv, struct MPOpts *opts,
                       struct mp_osd_res *dim)
 {
-    ass_set_frame_size(priv, dim->w, dim->h);
-    ass_set_margins(priv, dim->mt, dim->mb, dim->ml, dim->mr);
+    ass_set_frame_size(priv, dim->size.w, dim->size.h);
+    ass_set_margins(priv, dim->margin.t, dim->margin.b, dim->margin.l, dim->margin.r);
 
     int set_use_margins = 0;
 #if LIBASS_VERSION >= 0x01010000
@@ -149,8 +149,8 @@ void mp_ass_configure(ASS_Renderer *priv, struct MPOpts *opts,
         set_force_override = opts->ass_style_override == 3;
         set_font_scale = opts->sub_scale;
         if (opts->sub_scale_with_window) {
-            int vidh = dim->h - (dim->mt + dim->mb);
-            set_font_scale *= dim->h / (float)MPMAX(vidh, 1);
+            int vidh = dim->size.h - (dim->margin.t + dim->margin.b);
+            set_font_scale *= dim->size.h / (float)MPMAX(vidh, 1);
         }
     }
 
@@ -216,10 +216,8 @@ void mp_ass_render_frame(ASS_Renderer *renderer, ASS_Track *track, double time,
         p->bitmap = img->bitmap;
         p->stride = img->stride;
         p->libass.color = img->color;
-        p->dw = p->w = img->w;
-        p->dh = p->h = img->h;
-        p->x = img->dst_x;
-        p->y = img->dst_y;
+        p->dsize = p->size = (struct mp_size){ img->w, img->h };
+        p->start = (struct mp_pos){ img->dst_x, img->dst_y };
         res->num_parts++;
     }
     *parts = res->parts;

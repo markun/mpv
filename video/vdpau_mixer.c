@@ -135,8 +135,8 @@ static int create_vdp_mixer(struct mp_vdpau_mixer *mixer)
         VDP_VIDEO_MIXER_PARAMETER_CHROMA_TYPE,
     };
     const void *const parameter_values[VDP_NUM_MIXER_PARAMETER] = {
-        &(uint32_t){mixer->image_params.w},
-        &(uint32_t){mixer->image_params.h},
+        &(uint32_t){mixer->image_params.size.w},
+        &(uint32_t){mixer->image_params.size.h},
         &(VdpChromaType){mixer->chroma_type},
     };
     if (opts->deint >= 3)

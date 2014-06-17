@@ -174,8 +174,8 @@ struct priv {
     int tex_swapped;
     struct mp_image_params params;
     mp_image_t *ssmpi;
-    struct mp_rect src_rect;
-    struct mp_rect dst_rect;
+    struct mp_extend src_rect;
+    struct mp_extend dst_rect;
     struct mp_osd_res osd_res;
     struct formatmap_entry osd_format;
     struct osd_bitmap_surface {
@@ -904,14 +904,14 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
     }
 
     SDL_Rect src, dst;
-    src.x = vc->src_rect.x0;
-    src.y = vc->src_rect.y0;
-    src.w = vc->src_rect.x1 - vc->src_rect.x0;
-    src.h = vc->src_rect.y1 - vc->src_rect.y0;
-    dst.x = vc->dst_rect.x0;
-    dst.y = vc->dst_rect.y0;
-    dst.w = vc->dst_rect.x1 - vc->dst_rect.x0;
-    dst.h = vc->dst_rect.y1 - vc->dst_rect.y0;
+    src.x = vc->src_rect.start.x;
+    src.y = vc->src_rect.start.y;
+    src.w = vc->src_rect.size.w;
+    src.h = vc->src_rect.size.h;
+    dst.x = vc->dst_rect.start.x;
+    dst.y = vc->dst_rect.start.y;
+    dst.w = vc->dst_rect.size.w;
+    dst.h = vc->dst_rect.size.h;
 
     // typically this runs in parallel with the following mp_image_copy call
     if (color_mod > 255) {

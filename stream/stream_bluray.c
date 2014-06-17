@@ -76,7 +76,8 @@
 struct bluray_overlay {
     struct sub_bitmap *image;
     bool clean, hidden;
-    int x, y, w, h;
+    struct mp_pos start;
+    struct mp_size size;
 };
 
 struct bluray_priv_s {
@@ -153,17 +154,15 @@ static void overlay_release(struct bluray_overlay *overlay)
 
 static void overlay_alloc(struct bluray_priv_s *priv,
                           struct bluray_overlay *overlay,
-                          int x, int y, int w, int h)
+                          struct mp_extend ext)
 {
     assert(overlay->image == NULL);
     struct sub_bitmap *image = talloc_zero(NULL, struct sub_bitmap);
-    overlay->w = image->w = image->dw = w;
-    overlay->h = image->h = image->dh = h;
-    overlay->x = image->x = x;
-    overlay->y = image->y = y;
-    struct mp_image *mpi = mp_image_pool_get(priv->pool, IMGFMT_RGBA, w, h);
+    overlay->size = image->size = image->dsize = ext.size;
+    overlay->start = image->start = ext.start;
+    struct mp_image *mpi = mp_image_pool_get(priv->pool, IMGFMT_RGBA, ext.size);
     mpi = talloc_steal(image, mpi);
-    assert(image->w > 0 && image->h > 0 && mpi != NULL);
+    assert(image->size.w > 0 && image->size.h > 0 && mpi != NULL);
     image->stride = mpi->stride[0];
     image->bitmap = mpi->planes[0];
     overlay->image = image;
@@ -210,7 +209,7 @@ static void overlay_process(void *data, const BD_OVERLAY *const bo)
     struct bluray_overlay *overlay = &priv->overlays[bo->plane];
     switch (bo->cmd) {
     case BD_OVERLAY_INIT:
-        overlay_alloc(priv, overlay, bo->x, bo->y, bo->w, bo->h);
+        overlay_alloc(priv, overlay, (struct mp_extend){ { bo->x, bo->y }, { bo->w, bo->h } });
         break;
     case BD_OVERLAY_CLOSE:
         overlay_close(priv, bo);
@@ -218,7 +217,7 @@ static void overlay_process(void *data, const BD_OVERLAY *const bo)
     case BD_OVERLAY_CLEAR:
         if (!overlay->clean) {
             memset(overlay->image->bitmap, 0,
-                   overlay->image->stride*overlay->h);
+                   overlay->image->stride*overlay->size.h);
             overlay->clean = true;
         }
         break;
@@ -251,7 +250,7 @@ static void overlay_process(void *data, const BD_OVERLAY *const bo)
     case BD_OVERLAY_WIPE: {
         uint32_t *const origin = overlay->image->bitmap;
         for (int y = 0; y < bo->h; y++)
-            memset(origin + overlay->w * (y + bo->y) + bo->x, 0, 4 * bo->w);
+            memset(origin + overlay->size.w * (y + bo->y) + bo->x, 0, 4 * bo->w);
         break;
     }
     case BD_OVERLAY_HIDE:
@@ -261,11 +260,11 @@ static void overlay_process(void *data, const BD_OVERLAY *const bo)
         struct bluray_overlay *in = overlay;
         struct bluray_overlay *out = &priv->ol_flushed[bo->plane];
         if (out->image && (out->image->stride != in->image->stride ||
-                           out->image->h != in->image->h))
+                           out->image->size.h != in->image->size.h))
             overlay_release(out);
         if (!out->image)
-            overlay_alloc(priv, out, in->x, in->y, in->w, in->h);
-        const int len = in->image->stride*in->image->h;
+            overlay_alloc(priv, out, (struct mp_extend){ .start = in->start, .size = in->size });
+        const int len = in->image->stride*in->image->size.h;
         memcpy(out->image->bitmap, in->image->bitmap, len);
         out->clean = in->clean;
         out->hidden = in->hidden;

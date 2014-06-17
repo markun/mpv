@@ -17,13 +17,13 @@ struct vo_win_geometry {
     // Position & size of the window. In xinerama coordinates, i.e. they're
     // relative to the virtual desktop encompassing all screens, not the
     // current screen.
-    struct mp_rect win;
+    struct mp_extend win;
     // Aspect ratio of the current monitor.
     // (calculated from screen size and options.)
     double monitor_par;
 };
 
-void vo_calc_window_geometry(struct vo *vo, const struct mp_rect *screen,
+void vo_calc_window_geometry(struct vo *vo, const struct mp_extend *screen,
                              struct vo_win_geometry *out_geo);
 void vo_apply_window_geometry(struct vo *vo, const struct vo_win_geometry *geo);
 

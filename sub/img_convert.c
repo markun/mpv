@@ -75,21 +75,21 @@ bool osd_conv_idx_to_rgba(struct osd_conv_cache *c, struct sub_bitmaps *imgs)
         rgba_to_premultiplied_rgba(sb.palette, 256);
 
         *d = *s;
-        struct mp_image *image = mp_image_alloc(IMGFMT_BGRA, s->w, s->h);
+        struct mp_image *image = mp_image_alloc(IMGFMT_BGRA, s->size);
         talloc_steal(c->parts, image);
         if (!image) {
             // on OOM, skip the region by making it 0 sized
-            d->w = d->h = d->dw = d->dh = 0;
+            d->size = d->dsize = (struct mp_size){0};
             continue;
         }
 
         d->stride = image->stride[0];
         d->bitmap = image->planes[0];
 
-        for (int y = 0; y < s->h; y++) {
+        for (int y = 0; y < s->size.h; y++) {
             uint8_t *inbmp = sb.bitmap + y * s->stride;
             uint32_t *outbmp = (uint32_t*)((uint8_t*)d->bitmap + y * d->stride);
-            for (int x = 0; x < s->w; x++)
+            for (int x = 0; x < s->size.w; x++)
                 *outbmp++ = sb.palette[*inbmp++];
         }
     }
@@ -112,22 +112,22 @@ bool osd_conv_blur_rgba(struct osd_conv_cache *c, struct sub_bitmaps *imgs,
 
         // add a transparent padding border to reduce artifacts
         int pad = 5;
-        struct mp_image *temp = mp_image_alloc(IMGFMT_BGRA, s->w + pad * 2,
-                                                            s->h + pad * 2);
+        struct mp_size pad_size = { s->size.w + pad * 2, s->size.h + pad * 2 };
+        struct mp_image *temp = mp_image_alloc(IMGFMT_BGRA, pad_size);
         if (!temp)
             continue; // on OOM, skip region
-        memset_pic(temp->planes[0], 0, temp->w * 4, temp->h, temp->stride[0]);
+        memset_pic(temp->planes[0], 0, temp->size.w * 4, temp->size.h, temp->stride[0]);
         uint8_t *p0 = temp->planes[0] + pad * 4 + pad * temp->stride[0];
-        memcpy_pic(p0, s->bitmap, s->w * 4, s->h, temp->stride[0], s->stride);
+        memcpy_pic(p0, s->bitmap, s->size.w * 4, s->size.h, temp->stride[0], s->stride);
 
-        double sx = (double)s->dw / s->w;
-        double sy = (double)s->dh / s->h;
+        double sx = (double)s->dsize.w / s->size.w;
+        double sy = (double)s->dsize.h / s->size.h;
 
-        d->x = s->x - pad * sx;
-        d->y = s->y - pad * sy;
-        d->w = d->dw = s->dw + pad * 2 * sx;
-        d->h = d->dh = s->dh + pad * 2 * sy;
-        struct mp_image *image = mp_image_alloc(IMGFMT_BGRA, d->w, d->h);
+        d->start.x = s->start.x - pad * sx;
+        d->start.y = s->start.y - pad * sy;
+        d->size.w = d->dsize.w = s->dsize.w + pad * 2 * sx;
+        d->size.h = d->dsize.h = s->dsize.h + pad * 2 * sy;
+        struct mp_image *image = mp_image_alloc(IMGFMT_BGRA, d->size);
         talloc_steal(c->parts, image);
         if (image) {
             d->stride = image->stride[0];
@@ -154,7 +154,7 @@ bool osd_scale_rgba(struct osd_conv_cache *c, struct sub_bitmaps *imgs)
     bool need_scale = false;
     for (int n = 0; n < src.num_parts; n++) {
         struct sub_bitmap *sb = &src.parts[n];
-        if (sb->w != sb->dw || sb->h != sb->dh)
+        if (!mp_size_equals(&sb->size, &sb->dsize))
             need_scale = true;
     }
     if (!need_scale)
@@ -171,15 +171,13 @@ bool osd_scale_rgba(struct osd_conv_cache *c, struct sub_bitmaps *imgs)
 
         struct mp_image src_image = {0};
         mp_image_setfmt(&src_image, IMGFMT_BGRA);
-        mp_image_set_size(&src_image, s->w, s->h);
+        mp_image_set_size(&src_image, s->size);
         src_image.planes[0] = s->bitmap;
         src_image.stride[0] = s->stride;
 
-        d->x = s->x;
-        d->y = s->y;
-        d->w = d->dw = s->dw;
-        d->h = d->dh = s->dh;
-        struct mp_image *image = mp_image_alloc(IMGFMT_BGRA, d->w, d->h);
+        d->start = s->start;
+        d->size = d->dsize = s->dsize;
+        struct mp_image *image = mp_image_alloc(IMGFMT_BGRA, d->size);
         talloc_steal(c->parts, image);
         if (image) {
             d->stride = image->stride[0];
@@ -279,10 +277,9 @@ bool osd_conv_ass_to_rgba(struct osd_conv_cache *c, struct sub_bitmaps *imgs)
     size_t newsize = 0;
     for (int n = 0; n < num_bb; n++) {
         struct mp_rect bb = bb_list[n];
-        int w = bb.x1 - bb.x0;
-        int h = bb.y1 - bb.y0;
-        int stride = w * 4;
-        newsize += h * stride;
+        struct mp_size size = mp_rect2size(&bb);
+        int stride = size.w * 4;
+        newsize += size.h * stride;
     }
 
     if (talloc_get_size(c->scratch) < newsize) {
@@ -296,28 +293,26 @@ bool osd_conv_ass_to_rgba(struct osd_conv_cache *c, struct sub_bitmaps *imgs)
         struct mp_rect bb = bb_list[n];
         struct sub_bitmap *bmp = &c->part[n];
 
-        bmp->x = bb.x0;
-        bmp->y = bb.y0;
-        bmp->w = bmp->dw = bb.x1 - bb.x0;
-        bmp->h = bmp->dh = bb.y1 - bb.y0;
-        bmp->stride = bmp->w * 4;
+        bmp->start = bb.start;
+        bmp->size = bmp->dsize = mp_rect2size(&bb);
+        bmp->stride = bmp->size.w * 4;
         bmp->bitmap = data;
-        data += bmp->h * bmp->stride;
+        data += bmp->size.h * bmp->stride;
 
-        memset_pic(bmp->bitmap, 0, bmp->w * 4, bmp->h, bmp->stride);
+        memset_pic(bmp->bitmap, 0, bmp->size.w * 4, bmp->size.h, bmp->stride);
 
         for (int p = 0; p < src.num_parts; p++) {
             struct sub_bitmap *s = &src.parts[p];
 
             // Assume mp_get_sub_bb_list() never splits sub bitmaps
             // So we don't clip/adjust the size of the sub bitmap
-            if (s->x > bb.x1 || s->x + s->w < bb.x0 ||
-                s->y > bb.y1 || s->y + s->h < bb.y0)
+            if (s->start.x > bb.end.x || s->start.x + s->size.w < bb.start.x ||
+                s->start.y > bb.end.y || s->start.y + s->size.h < bb.start.y)
                 continue;
 
-            draw_ass_rgba(s->bitmap, s->w, s->h, s->stride,
+            draw_ass_rgba(s->bitmap, s->size.w, s->size.h, s->stride,
                           bmp->bitmap, bmp->stride,
-                          s->x - bb.x0, s->y - bb.y0,
+                          s->start.x - bb.start.x, s->start.y - bb.start.y,
                           s->libass.color);
         }
     }
@@ -327,22 +322,22 @@ bool osd_conv_ass_to_rgba(struct osd_conv_cache *c, struct sub_bitmaps *imgs)
 
 bool mp_sub_bitmaps_bb(struct sub_bitmaps *imgs, struct mp_rect *out_bb)
 {
-    struct mp_rect bb = {INT_MAX, INT_MAX, INT_MIN, INT_MIN};
+    struct mp_rect bb = { { INT_MAX, INT_MAX }, { INT_MIN, INT_MIN } };
     for (int n = 0; n < imgs->num_parts; n++) {
         struct sub_bitmap *p = &imgs->parts[n];
-        bb.x0 = FFMIN(bb.x0, p->x);
-        bb.y0 = FFMIN(bb.y0, p->y);
-        bb.x1 = FFMAX(bb.x1, p->x + p->dw);
-        bb.y1 = FFMAX(bb.y1, p->y + p->dh);
+        bb.start.x = FFMIN(bb.start.x, p->start.x);
+        bb.start.y = FFMIN(bb.start.y, p->start.y);
+        bb.end.x = FFMAX(bb.end.x, p->start.x + p->dsize.w);
+        bb.end.y = FFMAX(bb.end.y, p->start.y + p->dsize.h);
     }
 
     // avoid degenerate bounding box if empty
-    bb.x0 = FFMIN(bb.x0, bb.x1);
-    bb.y0 = FFMIN(bb.y0, bb.y1);
+    bb.start.x = FFMIN(bb.start.x, bb.end.x);
+    bb.start.y = FFMIN(bb.start.y, bb.end.y);
 
     *out_bb = bb;
 
-    return bb.x0 < bb.x1 && bb.y0 < bb.y1;
+    return bb.start.x < bb.end.x && bb.start.y < bb.end.y;
 }
 
 // Merge bounding rectangles if they're closer than the given amount of pixels.
@@ -359,8 +354,8 @@ static void remove_intersecting_rcs(struct mp_rect *list, int *count)
             struct mp_rect *rc_a = &list[a];
             for (int b = *count - 1; b > a; b--) {
                 struct mp_rect *rc_b = &list[b];
-                if (rc_a->x0 - M <= rc_b->x1 && rc_a->x1 + M >= rc_b->x0 &&
-                    rc_a->y0 - M <= rc_b->y1 && rc_a->y1 + M >= rc_b->y0)
+                if (rc_a->start.x - M <= rc_b->end.x && rc_a->end.x + M >= rc_b->start.x &&
+                    rc_a->start.y - M <= rc_b->end.y && rc_a->end.y + M >= rc_b->start.y)
                 {
                     mp_rect_union(rc_a, rc_b);
                     MP_TARRAY_REMOVE_AT(list, *count, b);
@@ -385,12 +380,13 @@ int mp_get_sub_bb_list(struct sub_bitmaps *sbs, struct mp_rect *out_rc_list,
     int num_rc = 0;
     for (int n = 0; n < sbs->num_parts; n++) {
         struct sub_bitmap *sb = &sbs->parts[n];
-        struct mp_rect bb = {sb->x, sb->y, sb->x + sb->dw, sb->y + sb->dh};
+        struct mp_extend bb_ext = { .start = sb->start, .size = sb->dsize };
+        struct mp_rect bb = mp_extend2rect(&bb_ext);
         bool intersects = false;
         for (int r = 0; r < num_rc; r++) {
             struct mp_rect *rc = &out_rc_list[r];
-            if ((bb.x0 - M <= rc->x1 && bb.x1 + M >= rc->x0 &&
-                 bb.y0 - M <= rc->y1 && bb.y1 + M >= rc->y0) ||
+            if ((bb.start.x - M <= rc->end.x && bb.end.x + M >= rc->start.x &&
+                 bb.start.y - M <= rc->end.y && bb.end.y + M >= rc->start.y) ||
                 num_rc == rc_list_count)
             {
                 mp_rect_union(rc, &bb);

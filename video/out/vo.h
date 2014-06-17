@@ -72,8 +72,8 @@ enum mp_voctrl {
     VOCTRL_GET_DEINTERLACE,
 
     VOCTRL_WINDOW_TO_OSD_COORDS,        // float[2] (x/y)
-    VOCTRL_GET_WINDOW_SIZE,             // int[2] (w/h)
-    VOCTRL_SET_WINDOW_SIZE,             // int[2] (w/h)
+    VOCTRL_GET_WINDOW_SIZE,             // struct *mp_size (w/h)
+    VOCTRL_SET_WINDOW_SIZE,             // struct *mp_size (w/h)
 
     // The VO is supposed to set  "known" fields, and leave the others
     // untouched or set to 0.
@@ -259,8 +259,7 @@ struct vo {
     int event_fd;  // check_events() should be called when this has input
 
     // current window state
-    int dwidth;
-    int dheight;
+    struct mp_size dsize;
     float monitor_par;
 
     char *window_title;
@@ -298,7 +297,7 @@ void vo_mouse_movement(struct vo *vo, int posx, int posy);
 void vo_drop_files(struct vo *vo, int num_files, char **files);
 
 struct mp_osd_res;
-void vo_get_src_dst_rects(struct vo *vo, struct mp_rect *out_src,
-                          struct mp_rect *out_dst, struct mp_osd_res *out_osd);
+void vo_get_src_dst_rects(struct vo *vo, struct mp_extend *out_src,
+                          struct mp_extend *out_dst, struct mp_osd_res *out_osd);
 
 #endif /* MPLAYER_VIDEO_OUT_H */

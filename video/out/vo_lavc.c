@@ -96,16 +96,16 @@ static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
     enum AVPixelFormat pix_fmt = imgfmt2pixfmt(params->imgfmt);
     AVRational display_aspect_ratio, image_aspect_ratio;
     AVRational aspect;
-    uint32_t width = params->w;
-    uint32_t height = params->h;
+    uint32_t width = params->size.w;
+    uint32_t height = params->size.h;
 
     if (!vc)
         return -1;
 
     pthread_mutex_lock(&vo->encode_lavc_ctx->lock);
 
-    display_aspect_ratio.num = params->d_w;
-    display_aspect_ratio.den = params->d_h;
+    display_aspect_ratio.num = params->dsize.w;
+    display_aspect_ratio.den = params->dsize.h;
     image_aspect_ratio.num = width;
     image_aspect_ratio.den = height;
     aspect = av_div_q(display_aspect_ratio, image_aspect_ratio);

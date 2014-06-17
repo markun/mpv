@@ -77,9 +77,7 @@ struct mp_nav_cmd {
         struct {
             const char *action;
         } menu;
-        struct {
-            int x, y;
-        } mouse_pos;
+        struct mp_pos mouse_pos;
     } u;
 };
 

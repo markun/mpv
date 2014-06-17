@@ -111,8 +111,7 @@ static void unref_image(void *ptr)
 
 // Return a new image of given format/size. Unlike mp_image_pool_get(), this
 // returns NULL if there is no free image of this format/size.
-struct mp_image *mp_image_pool_get_no_alloc(struct mp_image_pool *pool, int fmt,
-                                            int w, int h)
+struct mp_image *mp_image_pool_get_no_alloc(struct mp_image_pool *pool, int fmt, struct mp_size size)
 {
     struct mp_image *new = NULL;
     pool_lock();
@@ -121,7 +120,7 @@ struct mp_image *mp_image_pool_get_no_alloc(struct mp_image_pool *pool, int fmt,
         struct image_flags *img_it = img->priv;
         assert(img_it->pool_alive);
         if (!img_it->referenced) {
-            if (img->imgfmt == fmt && img->w == w && img->h == h) {
+            if (img->imgfmt == fmt && mp_size_equals(&img->size, &size)) {
                 if (pool->use_lru) {
                     struct image_flags *new_it = new ? new->priv : NULL;
                     if (!new_it || new_it->order > img_it->order)
@@ -148,17 +147,16 @@ struct mp_image *mp_image_pool_get_no_alloc(struct mp_image_pool *pool, int fmt,
 // data allocations through this pool.
 // The image can be free'd with talloc_free().
 // Returns NULL on OOM.
-struct mp_image *mp_image_pool_get(struct mp_image_pool *pool, int fmt,
-                                   int w, int h)
+struct mp_image *mp_image_pool_get(struct mp_image_pool *pool, int fmt, struct mp_size size)
 {
-    struct mp_image *new = mp_image_pool_get_no_alloc(pool, fmt, w, h);
+    struct mp_image *new = mp_image_pool_get_no_alloc(pool, fmt, size);
     if (!new) {
         if (pool->num_images >= pool->max_count)
             mp_image_pool_clear(pool);
         if (pool->allocator) {
-            new = pool->allocator(pool->allocator_ctx, fmt, w, h);
+            new = pool->allocator(pool->allocator_ctx, fmt, size);
         } else {
-            new = mp_image_alloc(fmt, w, h);
+            new = mp_image_alloc(fmt, size);
         }
         if (!new)
             return NULL;
@@ -166,7 +164,7 @@ struct mp_image *mp_image_pool_get(struct mp_image_pool *pool, int fmt,
         *it = (struct image_flags) { .pool_alive = true };
         new->priv = it;
         MP_TARRAY_APPEND(pool, pool->images, pool->num_images, new);
-        new = mp_image_pool_get_no_alloc(pool, fmt, w, h);
+        new = mp_image_pool_get_no_alloc(pool, fmt, size);
     }
     return new;
 }
@@ -176,7 +174,7 @@ struct mp_image *mp_image_pool_get(struct mp_image_pool *pool, int fmt,
 struct mp_image *mp_image_pool_new_copy(struct mp_image_pool *pool,
                                         struct mp_image *img)
 {
-    struct mp_image *new = mp_image_pool_get(pool, img->imgfmt, img->w, img->h);
+    struct mp_image *new = mp_image_pool_get(pool, img->imgfmt, img->size);
     if (new) {
         mp_image_copy(new, img);
         mp_image_copy_attributes(new, img);

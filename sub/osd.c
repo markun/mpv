@@ -76,8 +76,9 @@ const struct m_sub_options osd_style_conf = {
 
 static bool osd_res_equals(struct mp_osd_res a, struct mp_osd_res b)
 {
-    return a.w == b.w && a.h == b.h && a.ml == b.ml && a.mt == b.mt
-        && a.mr == b.mr && a.mb == b.mb
+    return mp_size_equals(&a.size, &b.size)
+        && a.margin.l == b.margin.l && a.margin.t == b.margin.t
+        && a.margin.r == b.margin.r && a.margin.b == b.margin.b
         && a.display_par == b.display_par;
 }
 
@@ -388,12 +389,11 @@ void osd_draw_on_image_p(struct osd_state *osd, struct mp_osd_res res,
 // ratio if the image does not have a 1:1 pixel aspect ratio.
 struct mp_osd_res osd_res_from_image_params(const struct mp_image_params *p)
 {
-    double sar = (double)p->w / p->h;
-    double dar = (double)p->d_w / p->d_h;
+    double sar = (double)p->size.w / p->size.h;
+    double dar = (double)p->dsize.w / p->dsize.h;
 
     return (struct mp_osd_res) {
-        .w = p->w,
-        .h = p->h,
+        .size = p->size,
         .display_par = sar / dar,
     };
 }
@@ -428,8 +428,8 @@ void osd_object_get_scale_factor(struct osd_state *osd, int obj,
     int nw, nh;
     osd_object_get_resolution(osd, obj, &nw, &nh);
     pthread_mutex_lock(&osd->lock);
-    *sw = nw / (double)osd->objs[obj]->vo_res.w;
-    *sh = nh / (double)osd->objs[obj]->vo_res.h;
+    *sw = nw / (double)osd->objs[obj]->vo_res.size.w;
+    *sh = nh / (double)osd->objs[obj]->vo_res.size.h;
     pthread_mutex_unlock(&osd->lock);
 }
 
@@ -442,13 +442,13 @@ void osd_coords_to_video(struct osd_state *osd, int frame_w, int frame_h,
 {
     pthread_mutex_lock(&osd->lock);
     struct mp_osd_res res = osd->objs[OSDTYPE_OSD]->vo_res;
-    int vidw = res.w - res.ml - res.mr;
-    int vidh = res.h - res.mt - res.mb;
+    int vidw = res.size.w - res.margin.l - res.margin.r;
+    int vidh = res.size.h - res.margin.t - res.margin.b;
     double xscale = (double)vidw / frame_w;
     double yscale = (double)vidh / frame_h;
     // The OSD size + margins make up the scaled rectangle of the video.
-    *x = (*x - res.ml) / xscale;
-    *y = (*y - res.mt) / yscale;
+    *x = (*x - res.margin.l) / xscale;
+    *y = (*y - res.margin.t) / yscale;
     pthread_mutex_unlock(&osd->lock);
 }
 
@@ -468,8 +468,8 @@ struct mp_osd_res osd_get_vo_res(struct osd_state *osd, int obj)
 void osd_rescale_bitmaps(struct sub_bitmaps *imgs, int frame_w, int frame_h,
                          struct mp_osd_res res, double compensate_par)
 {
-    int vidw = res.w - res.ml - res.mr;
-    int vidh = res.h - res.mt - res.mb;
+    int vidw = res.size.w - res.margin.l - res.margin.r;
+    int vidh = res.size.h - res.margin.t - res.margin.b;
     double xscale = (double)vidw / frame_w;
     double yscale = (double)vidh / frame_h;
     if (compensate_par > 0) {
@@ -483,10 +483,10 @@ void osd_rescale_bitmaps(struct sub_bitmaps *imgs, int frame_w, int frame_h,
     int cy = vidh / 2 - (int)(frame_h * yscale) / 2;
     for (int i = 0; i < imgs->num_parts; i++) {
         struct sub_bitmap *bi = &imgs->parts[i];
-        bi->x = bi->x * xscale + cx + res.ml;
-        bi->y = bi->y * yscale + cy + res.mt;
-        bi->dw = bi->w * xscale;
-        bi->dh = bi->h * yscale;
+        bi->start.x = bi->start.x * xscale + cx + res.margin.l;
+        bi->start.y = bi->start.y * yscale + cy + res.margin.t;
+        bi->dsize.w = bi->size.w * xscale;
+        bi->dsize.h = bi->size.h * yscale;
     }
     imgs->scaled = xscale != 1 || yscale != 1;
 }

@@ -99,30 +99,28 @@ static void destroy_graph(struct vf_instance *vf)
     p->eof = false;
 }
 
-static AVRational par_from_sar_dar(int width, int height,
-                                   int d_width, int d_height)
+static AVRational par_from_sar_dar(struct mp_size size, struct mp_size dsize)
 {
-    return av_div_q((AVRational){d_width, d_height},
-                    (AVRational){width, height});
+    return av_div_q((AVRational){ dsize.w, dsize.h },
+                    (AVRational){ size.w, size.h });
 }
 
-static void dar_from_sar_par(int width, int height, AVRational par,
-                             int *out_dw, int *out_dh)
+static void dar_from_sar_par(struct mp_size size, AVRational par,
+                             struct mp_size *out_size)
 {
-    *out_dw = width;
-    *out_dh = height;
+    *out_size = size;
     if (par.num != 0 && par.den != 0) {
         double d = av_q2d(par);
         if (d > 1.0) {
-            *out_dw *= d;
+            out_size->w *= d;
         } else {
-            *out_dh /= d;
+            out_size->h /= d;
         }
     }
 }
 
-static bool recreate_graph(struct vf_instance *vf, int width, int height,
-                           int d_width, int d_height, unsigned int fmt)
+static bool recreate_graph(struct vf_instance *vf, struct mp_size size,
+                           struct mp_size dsize, unsigned int fmt)
 {
     void *tmp = talloc_new(NULL);
     struct vf_priv_s *p = vf->priv;
@@ -170,11 +168,11 @@ static bool recreate_graph(struct vf_instance *vf, int width, int height,
     char *sws_flags = talloc_asprintf(tmp, "flags=%"PRId64, p->cfg_sws_flags);
     graph->scale_sws_opts = av_strdup(sws_flags);
 
-    AVRational par = par_from_sar_dar(width, height, d_width, d_height);
+    AVRational par = par_from_sar_dar(size, dsize);
     AVRational timebase = AV_TIME_BASE_Q;
 
     char *src_args = talloc_asprintf(tmp, "%d:%d:%d:%d:%d:%d:%d",
-                                     width, height, imgfmt2pixfmt(fmt),
+                                     size.w, size.h, imgfmt2pixfmt(fmt),
                                      timebase.num, timebase.den,
                                      par.num, par.den);
 
@@ -227,16 +225,15 @@ static void reset(vf_instance_t *vf)
     struct vf_priv_s *p = vf->priv;
     struct mp_image_params *f = &vf->fmt_in;
     if (p->graph && f->imgfmt)
-        recreate_graph(vf, f->w, f->h, f->d_w, f->d_h, f->imgfmt);
+        recreate_graph(vf, f->size, f->dsize, f->imgfmt);
 }
 
-static int config(struct vf_instance *vf, int width, int height,
-                  int d_width, int d_height, unsigned int flags,
-                  unsigned int fmt)
+static int config(struct vf_instance *vf, struct mp_size size, struct mp_size dsize,
+                  unsigned int flags, unsigned int fmt)
 {
     struct vf_priv_s *p = vf->priv;
 
-    if (!recreate_graph(vf, width, height, d_width, d_height, fmt))
+    if (!recreate_graph(vf, size, dsize, fmt))
         return 0;
 
     AVFilterLink *l_out = p->out->inputs[0];
@@ -247,10 +244,11 @@ static int config(struct vf_instance *vf, int width, int height,
 
     p->par_in = l_in->sample_aspect_ratio;
 
-    int dw, dh;
-    dar_from_sar_par(l_out->w, l_out->h, l_out->sample_aspect_ratio, &dw, &dh);
+    struct mp_size out_dsize;
+    struct mp_size out_size = { l_out->w, l_out->h };
+    dar_from_sar_par(out_size, l_out->sample_aspect_ratio, &out_dsize);
 
-    return vf_next_config(vf, l_out->w, l_out->h, dw, dh, flags,
+    return vf_next_config(vf, out_size, out_dsize, flags,
                           pixfmt2imgfmt(l_out->format));
 
 }

@@ -66,16 +66,40 @@ extern const char *mpv_builddate;
 char *mp_format_time(double time, bool fractions);
 char *mp_format_time_fmt(const char *fmt, double time);
 
+struct mp_pos {
+    int x, y;
+};
+
+struct mp_size {
+    int w, h;
+};
+
+struct mp_margin {
+    int l, r, t, b;
+};
+
 struct mp_rect {
-    int x0, y0;
-    int x1, y1;
+    struct mp_pos start;
+    struct mp_pos end;
+};
+
+struct mp_extend {
+    struct mp_pos start;
+    struct mp_size size;
 };
 
 #define mp_rect_w(r) ((r).x1 - (r).x0)
 #define mp_rect_h(r) ((r).y1 - (r).y0)
 
+bool mp_size_equals(const struct mp_size *s1, const struct mp_size *s2);
 void mp_rect_union(struct mp_rect *rc, const struct mp_rect *src);
 bool mp_rect_intersection(struct mp_rect *rc, const struct mp_rect *rc2);
+struct mp_size mp_rect2size(const struct mp_rect *rect);
+struct mp_pos mp_extend2pos(const struct mp_extend *ext);
+struct mp_extend mp_rect2extend(const struct mp_rect *rect);
+struct mp_rect mp_extend2rect(const struct mp_extend *ext);
+struct mp_pos mp_size2pos(const struct mp_size *size);
+struct mp_rect mp_size2rect(const struct mp_size *size);
 
 int mp_snprintf_cat(char *str, size_t size, const char *format, ...)
     PRINTF_ATTRIBUTE(3, 4);

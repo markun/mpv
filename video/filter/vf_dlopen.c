@@ -55,7 +55,8 @@ struct vf_priv_s {
     mp_image_t *outpic[FILTER_MAX_OUTCNT];
 
     // generic
-    unsigned int out_cnt, out_width, out_height;
+    unsigned int out_cnt;
+    struct mp_size out_size;
 
     // multi frame output
     unsigned int outbufferpos;
@@ -86,53 +87,49 @@ static void set_imgprop(struct vf_dlopen_picdata *out, const mp_image_t *mpi)
         out->plane[i] = mpi->planes[i];
         out->planestride[i] = mpi->stride[i];
         out->planewidth[i] =
-            i ? (/*mpi->chroma_width*/ mpi->w >> mpi->chroma_x_shift) : mpi->w;
+            i ? (/*mpi->chroma_width*/ mpi->size.w >> mpi->chroma_shift.x) : mpi->size.w;
         out->planeheight[i] =
-            i ? (/*mpi->chroma_height*/ mpi->h >> mpi->chroma_y_shift) : mpi->h;
-        out->planexshift[i] = i ? mpi->chroma_x_shift : 0;
-        out->planeyshift[i] = i ? mpi->chroma_y_shift : 0;
+            i ? (/*mpi->chroma_height*/ mpi->size.h >> mpi->chroma_shift.y) : mpi->size.h;
+        out->planexshift[i] = i ? mpi->chroma_shift.x : 0;
+        out->planeyshift[i] = i ? mpi->chroma_shift.y : 0;
     }
 }
 
 static int config(struct vf_instance *vf,
-                  int width, int height, int d_width, int d_height,
+                  struct mp_size size, struct mp_size dsize,
                   unsigned int flags, unsigned int fmt)
 {
-    vf->priv->filter.in_width = width;
-    vf->priv->filter.in_height = height;
-    vf->priv->filter.in_d_width = d_width;
-    vf->priv->filter.in_d_height = d_height;
-    vf->priv->filter.in_fmt = talloc_strdup(vf, mp_imgfmt_to_name(fmt));
-    vf->priv->filter.out_width = width;
-    vf->priv->filter.out_height = height;
-    vf->priv->filter.out_d_width = d_width;
-    vf->priv->filter.out_d_height = d_height;
-    vf->priv->filter.out_fmt = NULL;
-    vf->priv->filter.out_cnt = 1;
+    struct vf_dlopen_context *filter = &vf->priv->filter;
+    filter->in_size = size;
+    filter->in_d_size = dsize;
+    filter->in_fmt = talloc_strdup(vf, mp_imgfmt_to_name(fmt));
+    filter->out_size = size;
+    filter->out_d_size = dsize;
+    filter->out_fmt = NULL;
+    filter->out_cnt = 1;
 
-    if (!vf->priv->filter.in_fmt) {
+    if (!filter->in_fmt) {
         MP_ERR(vf, "invalid input/output format\n");
         return 0;
     }
-    if (vf->priv->filter.config && vf->priv->filter.config(&vf->priv->filter) < 0) {
+    if (filter->config && filter->config(&vf->priv->filter) < 0) {
         MP_ERR(vf, "filter config failed\n");
         return 0;
     }
 
     // copy away stuff to sanity island
-    vf->priv->out_cnt = vf->priv->filter.out_cnt;
-    vf->priv->out_width = vf->priv->filter.out_width;
-    vf->priv->out_height = vf->priv->filter.out_height;
+    vf->priv->out_cnt = filter->out_cnt;
+    vf->priv->out_size = filter->out_size;
 
-    if (vf->priv->filter.out_fmt)
-        vf->priv->outfmt = mp_imgfmt_from_name(bstr0(vf->priv->filter.out_fmt), false);
+    if (filter->out_fmt)
+        vf->priv->outfmt = mp_imgfmt_from_name(bstr0(filter->out_fmt), false);
     else {
-        struct vf_dlopen_formatpair *p = vf->priv->filter.format_mapping;
+        struct vf_dlopen_formatpair *p = filter->format_mapping;
         vf->priv->outfmt = 0;
         if (p) {
             for (; p->from; ++p) {
                 // TODO support pixel format classes in matching
-                if (!strcmp(p->from, vf->priv->filter.in_fmt)) {
+                if (!strcmp(p->from, filter->in_fmt)) {
                     if(p->to)
                         vf->priv->outfmt = mp_imgfmt_from_name(bstr0(p->to), false);
                     else
@@ -142,7 +139,7 @@ static int config(struct vf_instance *vf,
             }
         } else
             vf->priv->outfmt = fmt;
-        vf->priv->filter.out_fmt =
+        filter->out_fmt =
             talloc_strdup(vf, mp_imgfmt_to_name(vf->priv->outfmt));
     }
 
@@ -158,18 +155,15 @@ static int config(struct vf_instance *vf,
     for (int i = 0; i < vf->priv->out_cnt; ++i) {
         talloc_free(vf->priv->outpic[i]);
         vf->priv->outpic[i] =
-            mp_image_alloc(vf->priv->out_width, vf->priv->out_height,
-                           vf->priv->outfmt);
+            mp_image_alloc(vf->priv->outfmt, vf->priv->out_size);
         if (!vf->priv->outpic[i])
             return 0; // OOM
         talloc_steal(vf, vf->priv->outpic[i]);
         set_imgprop(&vf->priv->filter.outpic[i], vf->priv->outpic[i]);
     }
 
-    return vf_next_config(vf, vf->priv->out_width,
-                          vf->priv->out_height,
-                          vf->priv->filter.out_d_width,
-                          vf->priv->filter.out_d_height,
+    return vf_next_config(vf, vf->priv->out_size,
+                          filter->out_d_size,
                           flags, vf->priv->outfmt);
 }
 
@@ -213,7 +207,7 @@ static int filter(struct vf_instance *vf, struct mp_image *mpi)
     set_imgprop(&vf->priv->filter.inpic, mpi);
     if (mpi->qscale) {
         if (mpi->qscale_type != 0) {
-            k = mpi->qstride * ((mpi->h + 15) >> 4);
+            k = mpi->qstride * ((mpi->size.h + 15) >> 4);
             if (vf->priv->qbuffersize != k) {
                 vf->priv->qbuffer = realloc(vf->priv->qbuffer, k);
                 vf->priv->qbuffersize = k;

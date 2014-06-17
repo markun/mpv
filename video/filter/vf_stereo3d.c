@@ -69,8 +69,7 @@ typedef enum stereo_code {
 
 typedef struct component {
     int fmt;
-    unsigned int width;
-    unsigned int height;
+    struct mp_size size;
     unsigned int off_left;
     unsigned int off_right;
     unsigned int row_left;
@@ -133,8 +132,7 @@ struct vf_priv_s {
     component in;
     component out;
     int ana_matrix[3][6];
-    unsigned int width;
-    unsigned int height;
+    struct mp_size size;
     unsigned int row_step;
     struct vf_lw_opts *lw_opts;
 } const vf_priv_default = {
@@ -153,19 +151,16 @@ static inline uint8_t ana_convert(int coeff[6], uint8_t left[3], uint8_t right[3
     return av_clip_uint8(sum >> 16);
 }
 
-static int config(struct vf_instance *vf, int width, int height, int d_width,
-                  int d_height, unsigned int flags, unsigned int outfmt)
+static int config(struct vf_instance *vf, struct mp_size size, struct mp_size dsize, unsigned int flags, unsigned int outfmt)
 {
-    if ((width & 1) || (height & 1)) {
-        MP_WARN(vf, "[stereo3d] invalid height or width\n");
+    if ((size.w & 1) || (size.h & 1)) {
+        MP_WARN(vf, "[stereo3d] invalid size.h or size.w\n");
         return 0;
     }
     //default input values
-    vf->priv->width             = width;
-    vf->priv->height            = height;
+    vf->priv->size              = size;
     vf->priv->row_step          = 1;
-    vf->priv->in.width          = width;
-    vf->priv->in.height         = height;
+    vf->priv->in.size           = size;
     vf->priv->in.off_left       = 0;
     vf->priv->in.off_right      = 0;
     vf->priv->in.row_left       = 0;
@@ -174,28 +169,28 @@ static int config(struct vf_instance *vf, int width, int height, int d_width,
     //check input format
     switch (vf->priv->in.fmt) {
     case SIDE_BY_SIDE_2_LR:
-        d_width                *= 2;
+        dsize.w                *= 2;
     case SIDE_BY_SIDE_LR:
-        vf->priv->width         = width / 2;
-        vf->priv->in.off_right  = vf->priv->width * 3;
+        vf->priv->size.w         = size.w / 2;
+        vf->priv->in.off_right  = vf->priv->size.w * 3;
         break;
     case SIDE_BY_SIDE_2_RL:
-        d_width                *= 2;
+        dsize.w                *= 2;
     case SIDE_BY_SIDE_RL:
-        vf->priv->width         = width / 2;
-        vf->priv->in.off_left   = vf->priv->width * 3;
+        vf->priv->size.w         = size.w / 2;
+        vf->priv->in.off_left   = vf->priv->size.w * 3;
         break;
     case ABOVE_BELOW_2_LR:
-        d_height               *= 2;
+        dsize.h               *= 2;
     case ABOVE_BELOW_LR:
-        vf->priv->height        = height / 2;
-        vf->priv->in.row_right  = vf->priv->height;
+        vf->priv->size.h        = size.h / 2;
+        vf->priv->in.row_right  = vf->priv->size.h;
         break;
     case ABOVE_BELOW_2_RL:
-        d_height               *= 2;
+        dsize.h               *= 2;
     case ABOVE_BELOW_RL:
-        vf->priv->height        = height / 2;
-        vf->priv->in.row_left   = vf->priv->height;
+        vf->priv->size.h        = size.h / 2;
+        vf->priv->in.row_left   = vf->priv->size.h;
         break;
     default:
         MP_WARN(vf, "[stereo3d] stereo format of input is not supported\n");
@@ -203,8 +198,7 @@ static int config(struct vf_instance *vf, int width, int height, int d_width,
         break;
     }
     //default output values
-    vf->priv->out.width         = vf->priv->width;
-    vf->priv->out.height        = vf->priv->height;
+    vf->priv->out.size         = vf->priv->size;
     vf->priv->out.off_left      = 0;
     vf->priv->out.off_right     = 0;
     vf->priv->out.row_left      = 0;
@@ -228,40 +222,40 @@ static int config(struct vf_instance *vf, int width, int height, int d_width,
                sizeof(vf->priv->ana_matrix));
         break;
     case SIDE_BY_SIDE_2_LR:
-        d_width                /= 2;
+        dsize.w                /= 2;
     case SIDE_BY_SIDE_LR:
-        vf->priv->out.width     = vf->priv->width * 2;
-        vf->priv->out.off_right = vf->priv->width * 3;
+        vf->priv->out.size.w     = vf->priv->size.w * 2;
+        vf->priv->out.off_right = vf->priv->size.w * 3;
         break;
     case SIDE_BY_SIDE_2_RL:
-        d_width                /= 2;
+        dsize.w                /= 2;
     case SIDE_BY_SIDE_RL:
-        vf->priv->out.width     = vf->priv->width * 2;
-        vf->priv->out.off_left  = vf->priv->width * 3;
+        vf->priv->out.size.w     = vf->priv->size.w * 2;
+        vf->priv->out.off_left  = vf->priv->size.w * 3;
         break;
     case ABOVE_BELOW_2_LR:
-        d_height               /= 2;
+        dsize.h               /= 2;
     case ABOVE_BELOW_LR:
-        vf->priv->out.height    = vf->priv->height * 2;
-        vf->priv->out.row_right = vf->priv->height;
+        vf->priv->out.size.h    = vf->priv->size.h * 2;
+        vf->priv->out.row_right = vf->priv->size.h;
         break;
     case ABOVE_BELOW_2_RL:
-        d_height               /= 2;
+        dsize.h               /= 2;
     case ABOVE_BELOW_RL:
-        vf->priv->out.height    = vf->priv->height * 2;
-        vf->priv->out.row_left  = vf->priv->height;
+        vf->priv->out.size.h    = vf->priv->size.h * 2;
+        vf->priv->out.row_left  = vf->priv->size.h;
         break;
     case INTERLEAVE_ROWS_LR:
         vf->priv->row_step      = 2;
-        vf->priv->height        = vf->priv->height / 2;
-        vf->priv->out.off_right = vf->priv->width * 3;
-        vf->priv->in.off_right += vf->priv->in.width * 3;
+        vf->priv->size.h        = vf->priv->size.h / 2;
+        vf->priv->out.off_right = vf->priv->size.w * 3;
+        vf->priv->in.off_right += vf->priv->in.size.w * 3;
         break;
     case INTERLEAVE_ROWS_RL:
         vf->priv->row_step      = 2;
-        vf->priv->height        = vf->priv->height / 2;
-        vf->priv->out.off_left  = vf->priv->width * 3;
-        vf->priv->in.off_left  += vf->priv->in.width * 3;
+        vf->priv->size.h        = vf->priv->size.h / 2;
+        vf->priv->out.off_left  = vf->priv->size.w * 3;
+        vf->priv->in.off_left  += vf->priv->in.size.w * 3;
         break;
     case MONO_R:
         //same as MONO_L only needs switching of input offsets
@@ -276,10 +270,8 @@ static int config(struct vf_instance *vf, int width, int height, int d_width,
         return 0;
         break;
     }
-    vf_rescale_dsize(&d_width, &d_height, width, height,
-                     vf->priv->out.width, vf->priv->out.height);
-    return vf_next_config(vf, vf->priv->out.width, vf->priv->out.height,
-                          d_width, d_height, flags, outfmt);
+    vf_rescale_dsize(&dsize, size, vf->priv->out.size);
+    return vf_next_config(vf, vf->priv->out.size, dsize, flags, outfmt);
 }
 
 static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
@@ -316,15 +308,15 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
         case INTERLEAVE_ROWS_RL:
             memcpy_pic2(dmpi->planes[0] + out_off_left,
                        mpi->planes[0] + in_off_left,
-                       3 * vf->priv->width,
-                       vf->priv->height,
+                       3 * vf->priv->size.w,
+                       vf->priv->size.h,
                        dmpi->stride[0] * vf->priv->row_step,
                        mpi->stride[0] * vf->priv->row_step,
                        vf->priv->row_step != 1);
             memcpy_pic2(dmpi->planes[0] + out_off_right,
                        mpi->planes[0] + in_off_right,
-                       3 * vf->priv->width,
-                       vf->priv->height,
+                       3 * vf->priv->size.w,
+                       vf->priv->size.h,
                        dmpi->stride[0] * vf->priv->row_step,
                        mpi->stride[0] * vf->priv->row_step,
                        vf->priv->row_step != 1);
@@ -333,8 +325,8 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
         case MONO_R:
             memcpy_pic(dmpi->planes[0],
                        mpi->planes[0] + in_off_left,
-                       3 * vf->priv->width,
-                       vf->priv->height,
+                       3 * vf->priv->size.w,
+                       vf->priv->size.h,
                        dmpi->stride[0],
                        mpi->stride[0]);
             break;
@@ -353,13 +345,13 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
             int x,y,il,ir,o;
             unsigned char *source     = mpi->planes[0];
             unsigned char *dest       = dmpi->planes[0];
-            unsigned int   out_width  = vf->priv->out.width;
+            unsigned int   out_width  = vf->priv->out.size.w;
             int           *ana_matrix[3];
 
             for(int i = 0; i < 3; i++)
                 ana_matrix[i] = vf->priv->ana_matrix[i];
 
-            for (y = 0; y < vf->priv->out.height; y++) {
+            for (y = 0; y < vf->priv->out.size.h; y++) {
                 o   = dmpi->stride[0] * y;
                 il  = in_off_left  + y * mpi->stride[0];
                 ir  = in_off_right + y * mpi->stride[0];

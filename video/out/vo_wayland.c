@@ -136,10 +136,8 @@ struct priv {
     struct wl_list format_list;
     const struct fmtentry *video_format;
 
-    struct mp_rect src;
-    struct mp_rect dst;
-    int src_w, src_h;
-    int dst_w, dst_h;
+    struct mp_extend src;
+    struct mp_extend dst;
     struct mp_osd_res osd;
 
     struct mp_sws_context *sws;
@@ -152,10 +150,10 @@ struct priv {
     struct buffer *attached_buffer;
 
     struct mp_image *original_image;
-    int width;  // width of the original image
-    int height;
 
-    int x, y; // coords for resizing
+    struct mp_size size; // size of the original image
+
+    struct mp_pos pos; // coords for resizing
 
     // this id tells us if the subtitle part has changed or not
     int bitmap_pos_id[MAX_OSD_PARTS];
@@ -490,36 +488,29 @@ static bool resize(struct priv *p)
 {
     struct vo_wayland_state *wl = p->wl;
 
-    int32_t x = wl->window.sh_x;
-    int32_t y = wl->window.sh_y;
-    wl->vo->dwidth = wl->window.sh_width;
-    wl->vo->dheight = wl->window.sh_height;
+    int32_t x = wl->window.sh_pos.x;
+    int32_t y = wl->window.sh_pos.y;
+    wl->vo->dsize = wl->window.sh_size;
 
     vo_get_src_dst_rects(p->vo, &p->src, &p->dst, &p->osd);
-    p->src_w = p->src.x1 - p->src.x0;
-    p->src_h = p->src.y1 - p->src.y0;
-    p->dst_w = p->dst.x1 - p->dst.x0;
-    p->dst_h = p->dst.y1 - p->dst.y0;
 
-    MP_DBG(wl, "resizing %dx%d -> %dx%d\n", wl->window.width,
-                                            wl->window.height,
-                                            p->dst_w,
-                                            p->dst_h);
+    MP_DBG(wl, "resizing %dx%d -> %dx%d\n", wl->window.size.w,
+                                            wl->window.size.h,
+                                            p->dst.size.w,
+                                            p->dst.size.h);
 
     if (x != 0)
-        x = wl->window.width - p->dst_w;
+        x = wl->window.size.w - p->dst.size.w;
 
     if (y != 0)
-        y = wl->window.height - p->dst_h;
+        y = wl->window.size.h - p->dst.size.h;
 
     mp_sws_set_from_cmdline(p->sws, p->vo->opts->sws_opts);
     p->sws->src = p->in_format;
     p->sws->dst = (struct mp_image_params) {
         .imgfmt = p->video_format->mp_fmt,
-        .w = p->dst_w,
-        .h = p->dst_h,
-        .d_w = p->dst_w,
-        .d_h = p->dst_h,
+        .size = {p->dst.size.w, p->dst.size.h},
+        .dsize = {p->dst.size.w, p->dst.size.h},
     };
 
     mp_image_params_guess_csp(&p->sws->dst);
@@ -527,11 +518,11 @@ static bool resize(struct priv *p)
     if (mp_sws_reinit(p->sws) < 0)
         return false;
 
-    if (!buffer_pool_resize(&p->video_bufpool, p->dst_w, p->dst_h)) {
+    if (!buffer_pool_resize(&p->video_bufpool, p->dst.size.w, p->dst.size.h)) {
         MP_ERR(wl, "failed to resize video buffers\n");
         return false;
     }
-    if (!buffer_pool_resize(&p->osd_bufpool, p->dst_w, p->dst_h)) {
+    if (!buffer_pool_resize(&p->osd_bufpool, p->dst.size.w, p->dst.size.h)) {
         MP_ERR(wl, "failed to resize osd buffers\n");
         return false;
     }
@@ -541,26 +532,25 @@ static bool resize(struct priv *p)
         wl_subsurface_set_desync(p->osd_subsurfaces[i]);
         struct wl_surface *s = p->osd_surfaces[i];
         wl_surface_attach(s, NULL, 0, 0);
-        wl_surface_damage(s, 0, 0, p->dst_w, p->dst_h);
+        wl_surface_damage(s, 0, 0, p->dst.size.w, p->dst.size.h);
         wl_surface_commit(s);
         wl_subsurface_set_sync(p->osd_subsurfaces[i]);
     }
 
-    wl->window.width = p->dst_w;
-    wl->window.height = p->dst_h;
+    wl->window.size = p->dst.size;
 
     // if no alpha enabled format is used then create an opaque region to allow
     // the compositor to optimize the drawing of the window
     if (!p->enable_alpha) {
         struct wl_region *opaque =
             wl_compositor_create_region(wl->display.compositor);
-        wl_region_add(opaque, 0, 0, p->dst_w, p->dst_h);
+        wl_region_add(opaque, 0, 0, p->dst.size.w, p->dst.size.h);
         wl_surface_set_opaque_region(wl->window.video_surface, opaque);
         wl_region_destroy(opaque);
     }
 
-    p->x = x;
-    p->y = y;
+    p->pos.x = x;
+    p->pos.y = y;
     p->wl->window.events = 0;
     p->vo->want_redraw = true;
     return true;
@@ -590,8 +580,8 @@ static void frame_handle_redraw(void *data,
     struct buffer *buf = buffer_pool_get_front(&p->video_bufpool);
 
     if (buf) {
-        wl_surface_attach(wl->window.video_surface, buf->wlbuf, p->x, p->y);
-        wl_surface_damage(wl->window.video_surface, 0, 0, p->dst_w, p->dst_h);
+        wl_surface_attach(wl->window.video_surface, buf->wlbuf, p->pos.x, p->pos.y);
+        wl_surface_damage(wl->window.video_surface, 0, 0, p->dst.size.w, p->dst.size.h);
 
         if (callback)
             wl_callback_destroy(callback);
@@ -604,13 +594,13 @@ static void frame_handle_redraw(void *data,
         // resize attached buffer
         if (p->attached_buffer) {
             p->attached_buffer->is_attached = false;
-            buffer_resize(&p->video_bufpool, p->attached_buffer, p->dst_w, p->dst_h);
+            buffer_resize(&p->video_bufpool, p->attached_buffer, p->dst.size.w, p->dst.size.h);
         }
         p->attached_buffer = buf;
         buffer_finalise_front(buf);
 
-        p->x = 0;
-        p->y = 0;
+        p->pos.x = 0;
+        p->pos.y = 0;
     }
     else {
         if (callback)
@@ -664,21 +654,21 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
             MP_WARN(p->wl, "resizing attached buffer, use triple-buffering\n");
             buf->is_attached = false;
         }
-        buffer_resize(&p->video_bufpool, buf, p->dst_w, p->dst_h);
+        buffer_resize(&p->video_bufpool, buf, p->dst.size.w, p->dst.size.h);
     }
 
     struct mp_image img = buffer_get_mp_image(p, &p->video_bufpool, buf);
 
     if (mpi) {
         struct mp_image src = *mpi;
-        struct mp_rect src_rc = p->src;
-        src_rc.x0 = MP_ALIGN_DOWN(src_rc.x0, src.fmt.align_x);
-        src_rc.y0 = MP_ALIGN_DOWN(src_rc.y0, src.fmt.align_y);
-        mp_image_crop_rc(&src, src_rc);
+        struct mp_extend src_rc = p->src;
+        src_rc.start.x = MP_ALIGN_DOWN(src_rc.start.x, src.fmt.align_x);
+        src_rc.start.y = MP_ALIGN_DOWN(src_rc.start.y, src.fmt.align_y);
+        mp_image_crop_ext(&src, src_rc);
 
         mp_sws_scale(p->sws, &img, &src);
     } else {
-        mp_image_clear(&img, 0, 0, img.w, img.h);
+        mp_image_clear_rc(&img, mp_size2rect(&img.size));
     }
 
     if (mpi != p->original_image) {
@@ -708,20 +698,20 @@ static void draw_osd_cb(void *ctx, struct sub_bitmaps *imgs)
             return;
 
         struct mp_image wlimg = buffer_get_mp_image(p, &p->osd_bufpool, buf);
-        mp_image_clear(&wlimg, 0, 0, wlimg.w, wlimg.h);
+        mp_image_clear(&wlimg, 0, 0, wlimg.size.w, wlimg.size.h);
 
         for (int n = 0; n < imgs->num_parts; n++) {
             struct sub_bitmap *sub = &imgs->parts[n];
 
-            size_t dst = (bb.y0) * wlimg.stride[0] +
-                         (bb.x0) * 4;
+            size_t dst = (bb.start.y) * wlimg.stride[0] +
+                         (bb.start.x) * 4;
 
-            memcpy_pic(wlimg.planes[0] + dst, sub->bitmap, sub->w * 4, sub->h,
+            memcpy_pic(wlimg.planes[0] + dst, sub->bitmap, sub->size.w * 4, sub->size.h,
                        wlimg.stride[0], sub->stride);
         }
         wl_subsurface_set_position(p->osd_subsurfaces[id], 0, 0);
         wl_surface_attach(s, buf->wlbuf, 0, 0);
-        wl_surface_damage(s, bb.x0, bb.y0, bb.x1, bb.y1);
+        wl_surface_damage(s, bb.start.x, bb.start.y, bb.end.x, bb.end.y);
         wl_surface_commit(s);
     }
     else {
@@ -743,7 +733,7 @@ static void draw_osd(struct vo *vo)
     for (int i = 0; i < MAX_OSD_PARTS; ++i) {
         struct wl_surface *s = p->osd_surfaces[i];
         wl_surface_attach(s, NULL, 0, 0);
-        wl_surface_damage(s, 0, 0, p->dst_w, p->dst_h);
+        wl_surface_damage(s, 0, 0, p->dst.size.w, p->dst.size.h);
         wl_surface_commit(s);
     }
 
@@ -783,8 +773,7 @@ static int reconfig(struct vo *vo, struct mp_image_params *fmt, int flags)
     struct priv *p = vo->priv;
     mp_image_unrefp(&p->original_image);
 
-    p->width = fmt->w;
-    p->height = fmt->h;
+    p->size = fmt->size;
     p->in_format = *fmt;
 
     struct supported_format *sf;
@@ -815,8 +804,8 @@ static int reconfig(struct vo *vo, struct mp_image_params *fmt, int flags)
     }
 
     buffer_pool_reinit(p, &p->video_bufpool, (p->use_triplebuffering ? 3 : 2),
-            p->width, p->height, p->video_format, p->wl->display.shm);
-    buffer_pool_reinit(p, &p->osd_bufpool, MAX_OSD_PARTS, p->width, p->height,
+            p->size.w, p->size.h, p->video_format, p->wl->display.shm);
+    buffer_pool_reinit(p, &p->osd_bufpool, MAX_OSD_PARTS, p->size.w, p->size.h,
             &fmttable[DEFAULT_ALPHA_FORMAT_ENTRY], p->wl->display.shm);
 
     vo_wayland_config(vo, flags);
@@ -902,9 +891,9 @@ static int control(struct vo *vo, uint32_t request, void *data)
     {
         // OSD is rendered into the scaled image
         float *c = data;
-        struct mp_rect *dst = &p->dst;
-        c[0] = av_clipf(c[0], dst->x0, dst->x1) - dst->x0;
-        c[1] = av_clipf(c[1], dst->y0, dst->y1) - dst->y0;
+        struct mp_extend *dst = &p->dst;
+        c[0] = av_clipf(c[0] - dst->start.x, 0, dst->size.w);
+        c[1] = av_clipf(c[1] - dst->start.y, 0, dst->size.h);
         return VO_TRUE;
     }
     case VOCTRL_SCREENSHOT:

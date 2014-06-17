@@ -36,9 +36,8 @@ struct vo_x11_state {
     Window rootwin;
     int screen;
     int display_is_local;
-    int ws_width;
-    int ws_height;
-    struct mp_rect screenrc;
+    struct mp_size ws_size;
+    struct mp_extend screenrc;
 
     bool screensaver_enabled;
     bool dpms_touched;
@@ -60,19 +59,19 @@ struct vo_x11_state {
     long orig_layer;
 
     // Current actual window position (updated on window move/resize events).
-    struct mp_rect winrc;
+    struct mp_extend winrc;
 
     int pending_vo_events;
 
     // last non-fullscreen extends (updated on fullscreen or reinitialization)
-    struct mp_rect nofsrc;
+    struct mp_extend nofsrc;
 
     /* Keep track of original video width/height to determine when to
      * resize window when reconfiguring. Resize window when video size
      * changes, but don't force window size changes as long as video size
      * stays the same (even if that size is different from the current
      * window size after the user modified the latter). */
-    int old_dw, old_dh;
+    struct mp_size old_dsize;
     /* Video size changed during fullscreen when we couldn't tell the new
      * size to the window manager. Must set window size when turning
      * fullscreen off. */
@@ -103,7 +102,7 @@ int vo_x11_check_events(struct vo *vo);
 bool vo_x11_screen_is_composited(struct vo *vo);
 void vo_x11_config_vo_window(struct vo *vo, XVisualInfo *vis, int flags,
                              const char *classname);
-void vo_x11_clear_background(struct vo *vo, const struct mp_rect *rc);
+void vo_x11_clear_background(struct vo *vo, const struct mp_extend *rc);
 void vo_x11_clearwindow(struct vo *vo, Window vo_window);
 int vo_x11_control(struct vo *vo, int *events, int request, void *arg);
 

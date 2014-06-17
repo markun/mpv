@@ -46,35 +46,33 @@ struct mp_nav_state {
     // Protected by the given lock
     pthread_mutex_t osd_lock;
     int hi_visible;
-    int highlight[4]; // x0 y0 x1 y1
-    int vidsize[2];
-    int subsize[2];
+    struct mp_rect highlight;
+    struct mp_size vidsize;
+    struct mp_size subsize;
     struct sub_bitmap *hi_elem;
     struct sub_bitmap *overlays[2];
     struct sub_bitmap outputs[3];
 };
 
-static inline bool is_valid_size(int size[2])
+static inline bool is_valid_size(struct mp_size size)
 {
-    return size[0] >= 1 && size[1] >= 1;
+    return size.w >= 1 && size.h >= 1;
 }
 
 static void update_resolution(struct MPContext *mpctx)
 {
     struct mp_nav_state *nav = mpctx->nav_state;
-    int size[2] = {0};
+    struct mp_size size;
     if (mpctx->d_sub[0])
-        sub_control(mpctx->d_sub[0], SD_CTRL_GET_RESOLUTION, size);
+        sub_control(mpctx->d_sub[0], SD_CTRL_GET_RESOLUTION, &size);
     if (!is_valid_size(size)) {
         struct mp_image_params vid = {0};
         if (mpctx->d_video)
             vid = mpctx->d_video->decoder_output;
-        size[0] = vid.w;
-        size[1] = vid.h;
+        size = vid.size;
     }
     pthread_mutex_lock(&nav->osd_lock);
-    nav->vidsize[0] = size[0];
-    nav->vidsize[1] = size[1];
+    nav->vidsize = size;
     pthread_mutex_unlock(&nav->osd_lock);
 }
 
@@ -161,7 +159,7 @@ void mp_nav_user_input(struct MPContext *mpctx, char *command)
         struct mp_nav_cmd inp = {MP_NAV_CMD_MOUSE_POS};
         int x, y;
         mp_input_get_mouse_pos(mpctx->input, &x, &y);
-        osd_coords_to_video(mpctx->osd, vid.w, vid.h, &x, &y);
+        osd_coords_to_video(mpctx->osd, vid.size.w, vid.size.h, &x, &y);
         inp.u.mouse_pos.x = x;
         inp.u.mouse_pos.y = y;
         stream_control(mpctx->stream, STREAM_CTRL_NAV_CMD, &inp);
@@ -226,10 +224,10 @@ void mp_handle_nav(struct MPContext *mpctx)
                        ev->u.highlight.display,
                        ev->u.highlight.sx, ev->u.highlight.sy,
                        ev->u.highlight.ex, ev->u.highlight.ey);
-            nav->highlight[0] = ev->u.highlight.sx;
-            nav->highlight[1] = ev->u.highlight.sy;
-            nav->highlight[2] = ev->u.highlight.ex;
-            nav->highlight[3] = ev->u.highlight.ey;
+            nav->highlight.start.x = ev->u.highlight.sx;
+            nav->highlight.start.y = ev->u.highlight.sy;
+            nav->highlight.end.x = ev->u.highlight.ex;
+            nav->highlight.end.y = ev->u.highlight.ey;
             nav->hi_visible = ev->u.highlight.display;
             pthread_mutex_unlock(&nav->osd_lock);
             update_resolution(mpctx);
@@ -298,24 +296,21 @@ void mp_nav_get_highlight(void *priv, struct mp_osd_res res,
         pthread_mutex_unlock(&nav->osd_lock);
         return;
     }
-    int sizes[2] = {nav->vidsize[0], nav->vidsize[1]};
-    if (sizes[0] != nav->subsize[0] || sizes[1] != nav->subsize[1]) {
+    if (!mp_size_equals(&nav->vidsize, &nav->subsize)) {
         talloc_free(sub->bitmap);
-        sub->bitmap = talloc_array(sub, uint32_t, sizes[0] * sizes[1]);
+        sub->bitmap = talloc_array(sub, uint32_t, nav->vidsize.w * nav->vidsize.h);
         memset(sub->bitmap, 0x80, talloc_get_size(sub->bitmap));
-        nav->subsize[0] = sizes[0];
-        nav->subsize[1] = sizes[1];
+        nav->subsize = nav->vidsize;
     }
 
     out_imgs->num_parts = 0;
 
     if (nav->hi_visible) {
-        sub->x = nav->highlight[0];
-        sub->y = nav->highlight[1];
-        sub->w = MPCLAMP(nav->highlight[2] - sub->x, 0, sizes[0]);
-        sub->h = MPCLAMP(nav->highlight[3] - sub->y, 0, sizes[1]);
-        sub->stride = sub->w * 4;
-        if (sub->w > 0 && sub->h > 0)
+        sub->start = nav->highlight.start;
+        sub->size.w = MPCLAMP(nav->highlight.end.x - sub->start.x, 0, nav->vidsize.w);
+        sub->size.h = MPCLAMP(nav->highlight.end.y - sub->start.y, 0, nav->vidsize.h);
+        sub->stride = sub->size.w * 4;
+        if (sub->size.w > 0 && sub->size.h > 0)
             nav->outputs[out_imgs->num_parts++] = *sub;
     }
 
@@ -327,7 +322,7 @@ void mp_nav_get_highlight(void *priv, struct mp_osd_res res,
     if (out_imgs->num_parts) {
         out_imgs->parts = nav->outputs;
         out_imgs->format = SUBBITMAP_RGBA;
-        osd_rescale_bitmaps(out_imgs, sizes[0], sizes[1], res, -1);
+        osd_rescale_bitmaps(out_imgs, nav->vidsize.w, nav->vidsize.h, res, -1);
     }
 
     pthread_mutex_unlock(&nav->osd_lock);

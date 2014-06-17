@@ -1965,15 +1965,15 @@ static int property_imgparams(struct mp_image_params p, int action, void *arg)
     if (!p.imgfmt)
         return M_PROPERTY_UNAVAILABLE;
 
-    double dar = p.d_w / (double)p.d_h;
-    double sar = p.w / (double)p.h;
+    double dar = p.dsize.w / (double)p.dsize.h;
+    double sar = p.size.w / (double)p.size.h;
 
     struct m_sub_property props[] = {
         {"pixelformat",     SUB_PROP_STR(mp_imgfmt_to_name(p.imgfmt))},
-        {"w",               SUB_PROP_INT(p.w)},
-        {"h",               SUB_PROP_INT(p.h)},
-        {"dw",              SUB_PROP_INT(p.d_w)},
-        {"dh",              SUB_PROP_INT(p.d_h)},
+        {"w",               SUB_PROP_INT(p.size.w)},
+        {"h",               SUB_PROP_INT(p.size.h)},
+        {"dw",              SUB_PROP_INT(p.dsize.w)},
+        {"dh",              SUB_PROP_INT(p.dsize.h)},
         {"aspect",          SUB_PROP_FLOAT(dar)},
         {"par",             SUB_PROP_FLOAT(dar / sar)},
         {"colormatrix",     SUB_PROP_STR(mp_csp_names[p.colorspace])},
@@ -2011,12 +2011,12 @@ static int mp_property_vd_imgparams(void *ctx, struct m_property *prop,
     struct sh_video *sh = vd->header->video;
     if (vd->vfilter->override_params.imgfmt) {
         return property_imgparams(vd->vfilter->override_params, action, arg);
-    } else if (sh->disp_w && sh->disp_h) {
+    } else if (sh->disp_size.w && sh->disp_size.h) {
         // Simplistic fallback for stupid scripts querying "width"/"height"
         // before the first frame is decoded.
         struct m_sub_property props[] = {
-            {"w", SUB_PROP_INT(sh->disp_w)},
-            {"h", SUB_PROP_INT(sh->disp_h)},
+            {"w", SUB_PROP_INT(sh->disp_size.w)},
+            {"h", SUB_PROP_INT(sh->disp_size.h)},
             {0}
         };
         return m_property_read_sub(props, action, arg);
@@ -2033,25 +2033,24 @@ static int mp_property_window_scale(void *ctx, struct m_property *prop,
         return M_PROPERTY_UNAVAILABLE;
 
     struct mp_image_params params = get_video_out_params(mpctx);
-    int vid_w = params.d_w;
-    int vid_h = params.d_h;
-    if (vid_w < 1 || vid_h < 1)
+    struct mp_size vid_size = params.dsize;
+    if (vid_size.w < 1 || vid_size.h < 1)
         return M_PROPERTY_UNAVAILABLE;
 
     switch (action) {
     case M_PROPERTY_SET: {
         double scale = *(double *)arg;
-        int s[2] = {vid_w * scale, vid_h * scale};
-        if (s[0] > 0 && s[1] > 0 && vo_control(vo, VOCTRL_SET_WINDOW_SIZE, s) > 0)
+        struct mp_size size = {vid_size.w * scale, vid_size.h * scale};
+        if (size.w > 0 && size.h > 0 && vo_control(vo, VOCTRL_SET_WINDOW_SIZE, &size) > 0)
             return M_PROPERTY_OK;
         return M_PROPERTY_UNAVAILABLE;
     }
     case M_PROPERTY_GET: {
-        int s[2];
-        if (vo_control(vo, VOCTRL_GET_WINDOW_SIZE, s) <= 0 || s[0] < 1 || s[1] < 1)
+        struct mp_size size;
+        if (vo_control(vo, VOCTRL_GET_WINDOW_SIZE, &size) <= 0 || size.w < 1 || size.h < 1)
             return M_PROPERTY_UNAVAILABLE;
-        double xs = (double)s[0] / vid_w;
-        double ys = (double)s[1] / vid_h;
+        double xs = (double)size.w / vid_size.w;
+        double ys = (double)size.h / vid_size.h;
         *(double *)arg = (xs + ys) / 2;
         return M_PROPERTY_OK;
     }
@@ -2072,7 +2071,7 @@ static int mp_property_osd_w(void *ctx, struct m_property *prop,
 {
     MPContext *mpctx = ctx;
     struct mp_osd_res vo_res = osd_get_vo_res(mpctx->osd, OSDTYPE_OSD);
-    return m_property_int_ro(action, arg, vo_res.w);
+    return m_property_int_ro(action, arg, vo_res.size.w);
 }
 
 static int mp_property_osd_h(void *ctx, struct m_property *prop,
@@ -2080,7 +2079,7 @@ static int mp_property_osd_h(void *ctx, struct m_property *prop,
 {
     MPContext *mpctx = ctx;
     struct mp_osd_res vo_res = osd_get_vo_res(mpctx->osd, OSDTYPE_OSD);
-    return m_property_int_ro(action, arg, vo_res.h);
+    return m_property_int_ro(action, arg, vo_res.size.h);
 }
 
 static int mp_property_osd_par(void *ctx, struct m_property *prop,
@@ -2147,10 +2146,10 @@ static int mp_property_aspect(void *ctx, struct m_property *prop,
     case M_PROPERTY_GET: {
         float aspect = -1;
         struct mp_image_params *params = &d_video->vfilter->override_params;
-        if (params && params->d_w && params->d_h) {
-            aspect = (float)params->d_w / params->d_h;
-        } else if (sh_video->disp_w && sh_video->disp_h) {
-            aspect = (float)sh_video->disp_w / sh_video->disp_h;
+        if (params && params->dsize.w && params->dsize.h) {
+            aspect = (float)params->dsize.w / params->dsize.h;
+        } else if (sh_video->disp_size.w && sh_video->disp_size.h) {
+            aspect = (float)sh_video->disp_size.w / sh_video->disp_size.h;
         }
         if (aspect <= 0)
             return M_PROPERTY_UNAVAILABLE;
@@ -3116,9 +3115,9 @@ static int overlay_add(struct MPContext *mpctx, int id, int x, int y,
     cmd->external2.parts[index] = (struct sub_bitmap) {
         .bitmap = p,
         .stride = stride,
-        .x = x, .y = y,
-        .w = w, .h = h,
-        .dw = w, .dh = h,
+        .start = { x, y },
+        .size = { w, h },
+        .dsize = { w, h },
     };
     cmd->external2.bitmap_id = cmd->external2.bitmap_pos_id = 1;
     cmd->external2.format = SUBBITMAP_RGBA;
@@ -3136,7 +3135,7 @@ static void overlay_remove(struct MPContext *mpctx, int id)
     if (index >= 0) {
         struct sub_bitmaps *sub = &cmd->external2;
         struct sub_bitmap *part = &sub->parts[index];
-        munmap(part->bitmap, part->h * part->stride);
+        munmap(part->bitmap, part->size.h * part->stride);
         MP_TARRAY_REMOVE_AT(sub->parts, sub->num_parts, index);
         cmd->overlay_map[id] = NULL;
         sub->bitmap_id = sub->bitmap_pos_id = 1;

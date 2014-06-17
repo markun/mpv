@@ -26,6 +26,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include "config.h"
+#include "common/common.h"
 
 #if HAVE_GL_WAYLAND
 #include <wayland-egl.h>
@@ -82,24 +83,18 @@ struct vo_wayland_state {
     } display;
 
     struct {
-        int32_t width;    // current size of the window
-        int32_t height;
-        int32_t p_width;  // previous sizes for leaving fullscreen
-        int32_t p_height;
-        int32_t sh_width; // sheduled width for resizing
-        int32_t sh_height;
-        int32_t sh_x;     // x, y calculated with the drag edges for moving
-        int32_t sh_y;
+        struct mp_size size;    // current size of the window
+        struct mp_size p_size;  // previous sizes for leaving fullscreen
+        struct mp_size sh_size; // sheduled width for resizing
+        struct mp_pos sh_pos;     // x, y calculated with the drag edges for moving
         float aspect;
 
         bool is_init;       // true if the window has a valid size
         bool is_fullscreen; // don't keep aspect ratio in fullscreen mode
-        int32_t fs_width;   // fullscreen sizes
-        int32_t fs_height;
+        struct mp_size fs_size;   // fullscreen sizes
 
         struct wl_surface *video_surface;
-        int32_t mouse_x; // mouse position inside the surface
-        int32_t mouse_y;
+        struct mp_pos mouse_pos; // mouse position inside the surface
         struct wl_shell_surface *shell_surface;
         int events; /* mplayer events (VO_EVENT_RESIZE) */
     } window;

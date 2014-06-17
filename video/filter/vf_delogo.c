@@ -27,7 +27,8 @@
 #include "options/m_option.h"
 
 static struct vf_priv_s {
-    int xoff, yoff, lw, lh, band, show;
+    struct mp_extend logo;
+    int band, show;
     struct vf_lw_opts *lw_opts;
 } const vf_priv_dflt = {
     .band = 1,
@@ -43,7 +44,7 @@ static int vf_open(vf_instance_t *vf){
         show = 1;
     }
     if (vf_lw_set_graph(vf, p->lw_opts, "delogo", "%d:%d:%d:%d:%d:%d",
-                        p->xoff, p->yoff, p->lw, p->lh, band, show) >= 0)
+                        p->logo.start.x, p->logo.start.y, p->logo.size.w, p->logo.size.h, band, show) >= 0)
     {
         return 1;
     }
@@ -54,10 +55,10 @@ static int vf_open(vf_instance_t *vf){
 
 #define OPT_BASE_STRUCT struct vf_priv_s
 static const m_option_t vf_opts_fields[] = {
-    OPT_INT("x", xoff, 0),
-    OPT_INT("y", yoff, 0),
-    OPT_INT("w", lw, 0),
-    OPT_INT("h", lh, 0),
+    OPT_INT("x", logo.start.x, 0),
+    OPT_INT("y", logo.start.y, 0),
+    OPT_INT("w", logo.size.w, 0),
+    OPT_INT("h", logo.size.h, 0),
     OPT_INT("t", band, 0),
     OPT_INT("band", band, 0), // alias
     OPT_FLAG("show", show, 0),

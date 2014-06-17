@@ -893,10 +893,10 @@ static int script_get_screen_size(lua_State *L)
 {
     struct MPContext *mpctx = get_mpctx(L);
     struct mp_osd_res vo_res = osd_get_vo_res(mpctx->osd, OSDTYPE_EXTERNAL);
-    double aspect = 1.0 * vo_res.w / MPMAX(vo_res.h, 1) /
+    double aspect = 1.0 * vo_res.size.w / MPMAX(vo_res.size.h, 1) /
                     vo_res.display_par;
-    lua_pushnumber(L, vo_res.w);
-    lua_pushnumber(L, vo_res.h);
+    lua_pushnumber(L, vo_res.size.w);
+    lua_pushnumber(L, vo_res.size.h);
     lua_pushnumber(L, aspect);
     return 3;
 }

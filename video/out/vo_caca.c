@@ -57,10 +57,8 @@ struct priv {
 
     /* image infos */
     int image_format;
-    int image_width;
-    int image_height;
-
-    int screen_w, screen_h;
+    struct mp_size image_size;
+    struct mp_size screen;
 };
 
 /* We want 24bpp always for now */
@@ -74,21 +72,21 @@ static const unsigned int amask = 0;
 static int resize(struct vo *vo)
 {
     struct priv *priv = vo->priv;
-    priv->screen_w = caca_get_canvas_width(priv->canvas);
-    priv->screen_h = caca_get_canvas_height(priv->canvas);
+    priv->screen.w = caca_get_canvas_width(priv->canvas);
+    priv->screen.h = caca_get_canvas_height(priv->canvas);
 
     caca_free_dither(priv->dither);
     talloc_free(priv->dither_buffer);
 
-    priv->dither = caca_create_dither(bpp, priv->image_width, priv->image_height,
-                                depth * priv->image_width,
+    priv->dither = caca_create_dither(bpp, priv->image_size.w, priv->image_size.h,
+                                depth * priv->image_size.w,
                                 rmask, gmask, bmask, amask);
     if (priv->dither == NULL) {
         MP_FATAL(vo, "caca_create_dither failed!\n");
         return -1;
     }
     priv->dither_buffer =
-        talloc_array(NULL, uint8_t, depth * priv->image_width * priv->image_height);
+        talloc_array(NULL, uint8_t, depth * priv->image_size.w * priv->image_size.h);
 
     /* Default libcaca features */
     caca_set_dither_antialias(priv->dither, priv->dither_antialias);
@@ -102,8 +100,7 @@ static int resize(struct vo *vo)
 static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
 {
     struct priv *priv = vo->priv;
-    priv->image_height = params->h;
-    priv->image_width  = params->w;
+    priv->image_size = params->size;
     priv->image_format = params->imgfmt;
 
     return resize(vo);
@@ -112,9 +109,9 @@ static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
 static void draw_image(struct vo *vo, mp_image_t *mpi)
 {
     struct priv *priv = vo->priv;
-    memcpy_pic(priv->dither_buffer, mpi->planes[0], priv->image_width * depth, priv->image_height,
-               priv->image_width * depth, mpi->stride[0]);
-    caca_dither_bitmap(priv->canvas, 0, 0, priv->screen_w, priv->screen_h, priv->dither, priv->dither_buffer);
+    memcpy_pic(priv->dither_buffer, mpi->planes[0], priv->image_size.w * depth, priv->image_size.h,
+               priv->image_size.w * depth, mpi->stride[0]);
+    caca_dither_bitmap(priv->canvas, 0, 0, priv->screen.w, priv->screen.h, priv->dither, priv->dither_buffer);
     talloc_free(mpi);
 }
 

@@ -42,16 +42,16 @@
 #include "options/m_option.h"
 
 static struct vf_priv_s {
-    int w, h;
-    int cfg_w, cfg_h;
+    struct mp_size size;
+    struct mp_size cfg_size;
     int v_chr_drop;
     double param[2];
     struct mp_sws_context *sws;
     int noup;
     int accurate_rnd;
 } const vf_priv_dflt = {
-    0, 0,
-    -1, -1,
+    {0, 0},
+    {-1, -1},
     0,
     {SWS_PARAM_DEFAULT, SWS_PARAM_DEFAULT},
 };
@@ -218,7 +218,7 @@ static unsigned int find_best_out(vf_instance_t *vf, int in_format)
 static int reconfig(struct vf_instance *vf, struct mp_image_params *in,
                     struct mp_image_params *out)
 {
-    int width = in->w, height = in->h, d_width = in->d_w, d_height = in->d_h;
+    struct mp_size size = in->size, dsize = in->dsize;
     unsigned int outfmt = in->imgfmt;
     unsigned int best = find_best_out(vf, outfmt);
     int round_w = 0, round_h = 0;
@@ -230,20 +230,20 @@ static int reconfig(struct vf_instance *vf, struct mp_image_params *in,
 
     vf->next->query_format(vf->next, best);
 
-    vf->priv->w = vf->priv->cfg_w;
-    vf->priv->h = vf->priv->cfg_h;
+    struct mp_size *psize = &vf->priv->size;
+    *psize = vf->priv->cfg_size;
 
-    if (vf->priv->w <= -8) {
-        vf->priv->w += 8;
+    if (psize->w <= -8) {
+        psize->w += 8;
         round_w = 1;
     }
-    if (vf->priv->h <= -8) {
-        vf->priv->h += 8;
+    if (psize->h <= -8) {
+        psize->h += 8;
         round_h = 1;
     }
 
-    if (vf->priv->w < -3 || vf->priv->h < -3 ||
-        (vf->priv->w < -1 && vf->priv->h < -1))
+    if (psize->w < -3 || psize->h < -3 ||
+        (psize->w < -1 && psize->h < -1))
     {
         // TODO: establish a direct connection to the user's brain
         // and find out what the heck he thinks MPlayer should do
@@ -252,58 +252,56 @@ static int reconfig(struct vf_instance *vf, struct mp_image_params *in,
         return -1;
     }
 
-    if (vf->priv->w == -1)
-        vf->priv->w = width;
-    if (vf->priv->w == 0)
-        vf->priv->w = d_width;
+    if (psize->w == -1)
+        psize->w = size.w;
+    if (psize->w == 0)
+        psize->w = dsize.w;
 
-    if (vf->priv->h == -1)
-        vf->priv->h = height;
-    if (vf->priv->h == 0)
-        vf->priv->h = d_height;
+    if (psize->h == -1)
+        psize->h = size.h;
+    if (psize->h == 0)
+        psize->h = dsize.h;
 
-    if (vf->priv->w == -3)
-        vf->priv->w = vf->priv->h * width / height;
-    if (vf->priv->w == -2)
-        vf->priv->w = vf->priv->h * d_width / d_height;
+    if (psize->w == -3)
+        psize->w = psize->h * size.w / size.h;
+    if (psize->w == -2)
+        psize->w = psize->h * dsize.w / dsize.h;
 
-    if (vf->priv->h == -3)
-        vf->priv->h = vf->priv->w * height / width;
-    if (vf->priv->h == -2)
-        vf->priv->h = vf->priv->w * d_height / d_width;
+    if (psize->h == -3)
+        psize->h = psize->w * size.h / size.w;
+    if (psize->h == -2)
+        psize->h = psize->w * dsize.h / dsize.w;
 
     if (round_w)
-        vf->priv->w = ((vf->priv->w + 8) / 16) * 16;
+        psize->w = ((psize->w + 8) / 16) * 16;
     if (round_h)
-        vf->priv->h = ((vf->priv->h + 8) / 16) * 16;
+        psize->h = ((psize->h + 8) / 16) * 16;
 
     // check for upscaling, now that all parameters had been applied
     if (vf->priv->noup) {
-        if ((vf->priv->w > width) + (vf->priv->h > height) >= vf->priv->noup) {
-            vf->priv->w = width;
-            vf->priv->h = height;
+        if ((psize->w > size.w) + (psize->h > size.h) >= vf->priv->noup) {
+            psize->w = size.w;
+            psize->h = size.h;
         }
     }
 
     MP_DBG(vf, "SwScale: scaling %dx%d %s to %dx%d %s  \n",
-           width, height, vo_format_name(outfmt), vf->priv->w, vf->priv->h,
+           size.w, size.h, vo_format_name(outfmt), psize->w, psize->h,
            vo_format_name(best));
 
-    // Compute new d_width and d_height, preserving aspect
+    // Compute new dsize.w and dsize.h, preserving aspect
     // while ensuring that both are >= output size in pixels.
-    if (vf->priv->h * d_width > vf->priv->w * d_height) {
-        d_width = vf->priv->h * d_width / d_height;
-        d_height = vf->priv->h;
+    if (psize->h * dsize.w > psize->w * dsize.h) {
+        dsize.w = psize->h * dsize.w / dsize.h;
+        dsize.h = psize->h;
     } else {
-        d_height = vf->priv->w * d_height / d_width;
-        d_width = vf->priv->w;
+        dsize.h = psize->w * dsize.h / dsize.h;
+        dsize.w = psize->w;
     }
 
     *out = *in;
-    out->w = vf->priv->w;
-    out->h = vf->priv->h;
-    out->d_w = d_width;
-    out->d_h = d_height;
+    out->size = *psize;
+    out->dsize = dsize;
     out->imgfmt = best;
 
     // Second-guess what libswscale is going to output and what not.
@@ -400,15 +398,15 @@ static int vf_open(vf_instance_t *vf)
     vf->priv->sws->params[1] = vf->priv->param[1];
 
     MP_VERBOSE(vf, "SwScale params: %d x %d (-1=no scaling)\n",
-           vf->priv->cfg_w, vf->priv->cfg_h);
+           vf->priv->cfg_size.w, vf->priv->cfg_size.h);
 
     return 1;
 }
 
 #define OPT_BASE_STRUCT struct vf_priv_s
 static const m_option_t vf_opts_fields[] = {
-    OPT_INT("w", cfg_w, M_OPT_MIN, .min = -11),
-    OPT_INT("h", cfg_h, M_OPT_MIN, .min = -11),
+    OPT_INT("w", cfg_size.w, M_OPT_MIN, .min = -11),
+    OPT_INT("h", cfg_size.h, M_OPT_MIN, .min = -11),
     OPT_DOUBLE("param", param[0], M_OPT_RANGE, .min = 0.0, .max = 100.0),
     OPT_DOUBLE("param2", param[1], M_OPT_RANGE, .min = 0.0, .max = 100.0),
     OPT_INTRANGE("chr-drop", v_chr_drop, 0, 0, 3),

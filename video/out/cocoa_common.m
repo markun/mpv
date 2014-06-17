@@ -717,18 +717,18 @@ int vo_cocoa_control(struct vo *vo, int *events, int request, void *arg)
         vo_cocoa_ontop(vo);
         return VO_TRUE;
     case VOCTRL_GET_WINDOW_SIZE: {
-        int *s = arg;
+        struct mp_size *window_size = arg;
         dispatch_on_main_thread(vo, ^{
             NSSize size = [vo->cocoa->view frame].size;
-            s[0] = size.width;
-            s[1] = size.height;
+            window_size->w = size.width;
+            window_size->h = size.height;
         });
         return VO_TRUE;
     }
     case VOCTRL_SET_WINDOW_SIZE: {
         dispatch_on_main_thread(vo, ^{
-            int *s = arg;
-            [vo->cocoa->window queueNewVideoSize:NSMakeSize(s[0], s[1])];
+            struct mp_size *window_size = arg;
+            [vo->cocoa->window queueNewVideoSize:NSMakeSize(window_size->w, window_size->h)];
         });
         return VO_TRUE;
     }

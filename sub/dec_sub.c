@@ -133,11 +133,10 @@ static struct sd *sub_get_last_sd(struct dec_sub *sub)
     return sub->num_sd ? sub->sd[sub->num_sd - 1] : NULL;
 }
 
-void sub_set_video_res(struct dec_sub *sub, int w, int h)
+void sub_set_video_res(struct dec_sub *sub, struct mp_size size)
 {
     pthread_mutex_lock(&sub->lock);
-    sub->init_sd.sub_video_w = w;
-    sub->init_sd.sub_video_h = h;
+    sub->init_sd.sub_video_size = size;
     pthread_mutex_unlock(&sub->lock);
 }
 
@@ -207,8 +206,7 @@ void sub_init_from_sh(struct dec_sub *sub, struct sh_stream *sh)
         sub_set_extradata(sub, sh->sub->extradata, sh->sub->extradata_len);
     struct sd init_sd = sub->init_sd;
     init_sd.codec = sh->codec;
-    init_sd.sub_stream_w = sh->sub->w;
-    init_sd.sub_stream_h = sh->sub->h;
+    init_sd.sub_stream_size = sh->sub->size;
 
     while (sub->num_sd < MAX_NUM_SD) {
         struct sd *sd = talloc(NULL, struct sd);

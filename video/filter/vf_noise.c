@@ -221,9 +221,9 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
             mp_image_copy_attributes(dmpi, mpi);
         }
 
-        donoise(dmpi->planes[0], mpi->planes[0], dmpi->stride[0], mpi->stride[0], mpi->w, mpi->h, &vf->priv->lumaParam);
-        donoise(dmpi->planes[1], mpi->planes[1], dmpi->stride[1], mpi->stride[1], mpi->w/2, mpi->h/2, &vf->priv->chromaParam);
-        donoise(dmpi->planes[2], mpi->planes[2], dmpi->stride[2], mpi->stride[2], mpi->w/2, mpi->h/2, &vf->priv->chromaParam);
+        donoise(dmpi->planes[0], mpi->planes[0], dmpi->stride[0], mpi->stride[0], mpi->size.w, mpi->size.h, &vf->priv->lumaParam);
+        donoise(dmpi->planes[1], mpi->planes[1], dmpi->stride[1], mpi->stride[1], mpi->size.w/2, mpi->size.h/2, &vf->priv->chromaParam);
+        donoise(dmpi->planes[2], mpi->planes[2], dmpi->stride[2], mpi->stride[2], mpi->size.w/2, mpi->size.h/2, &vf->priv->chromaParam);
 
         if (dmpi != mpi)
             talloc_free(mpi);

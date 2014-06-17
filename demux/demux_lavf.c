@@ -475,8 +475,7 @@ static void handle_stream(demuxer_t *demuxer, int i)
         }
 
         sh->format = codec->codec_tag;
-        sh_video->disp_w = codec->width;
-        sh_video->disp_h = codec->height;
+        sh_video->disp_size = (struct mp_size){ codec->width, codec->height };
         /* Try to make up some frame rate value, even if it's not reliable.
          * FPS information is needed to support subtitle formats which base
          * timing on frame numbers.
@@ -538,8 +537,7 @@ static void handle_stream(demuxer_t *demuxer, int i)
             memcpy(sh_sub->extradata, codec->extradata, codec->extradata_size);
             sh_sub->extradata_len = codec->extradata_size;
         }
-        sh_sub->w = codec->width;
-        sh_sub->h = codec->height;
+        sh_sub->size = (struct mp_size){ codec->width, codec->height };
 
         if (matches_avinputformat_name(priv, "microdvd")) {
             AVRational r;

@@ -130,7 +130,7 @@ static struct mp_image *render(struct vf_instance *vf, struct mp_image *in,
     VASurfaceID in_id = va_surface_id(in);
     if (!p->pipe.filters || in_id == VA_INVALID_ID)
         return NULL;
-    struct mp_image *img = mp_image_pool_get(p->pool, IMGFMT_VAAPI, in->w, in->h);
+    struct mp_image *img = mp_image_pool_get(p->pool, IMGFMT_VAAPI, in->size);
     if (!img)
         return NULL;
     enum {Begun = 1, Rendered = 2};
@@ -208,7 +208,7 @@ static int process(struct vf_instance *vf, struct mp_image *in,
 static struct mp_image *upload(struct vf_instance *vf, struct mp_image *in)
 {
     struct vf_priv_s *p = vf->priv;
-    struct mp_image *out = mp_image_pool_get(p->pool, IMGFMT_VAAPI, in->w, in->h);
+    struct mp_image *out = mp_image_pool_get(p->pool, IMGFMT_VAAPI, in->size);
     if (!out)
         return NULL;
     if (va_surface_upload(out, in) < 0) {

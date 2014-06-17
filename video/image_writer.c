@@ -104,8 +104,8 @@ static int write_lavc(struct image_writer_ctx *ctx, mp_image_t *image, FILE *fp)
         goto print_open_fail;
 
     avctx->time_base = AV_TIME_BASE_Q;
-    avctx->width = image->w;
-    avctx->height = image->h;
+    avctx->width = image->size.w;
+    avctx->height = image->size.h;
     avctx->pix_fmt = imgfmt2pixfmt(image->imgfmt);
     if (avctx->pix_fmt == AV_PIX_FMT_NONE) {
         MP_ERR(ctx, "Image format %s not supported by lavc.\n",
@@ -175,8 +175,8 @@ static int write_jpeg(struct image_writer_ctx *ctx, mp_image_t *image, FILE *fp)
     jpeg_create_compress(&cinfo);
     jpeg_stdio_dest(&cinfo, fp);
 
-    cinfo.image_width = image->w;
-    cinfo.image_height = image->h;
+    cinfo.image_width = image->size.w;
+    cinfo.image_height = image->size.h;
     cinfo.input_components = 3;
     cinfo.in_color_space = JCS_RGB;
 
@@ -264,9 +264,7 @@ int write_image(struct mp_image *image, const struct image_writer_opts *opts,
 {
     struct mp_image *allocated_image = NULL;
     struct image_writer_opts defs = image_writer_opts_defaults;
-    int d_w = image->params.d_w;
-    int d_h = image->params.d_h;
-    bool is_anamorphic = image->w != d_w || image->h != d_h;
+    bool is_anamorphic = !mp_size_equals(&image->size, &image->params.dsize);
 
     if (!opts)
         opts = &defs;
@@ -288,7 +286,7 @@ int write_image(struct mp_image *image, const struct image_writer_opts *opts,
     // Caveat: no colorspace/levels conversion done if pixel formats equal
     //         it's unclear what colorspace/levels the target wants
     if (image->imgfmt != destfmt || is_anamorphic) {
-        struct mp_image *dst = mp_image_alloc(destfmt, d_w, d_h);
+        struct mp_image *dst = mp_image_alloc(destfmt, image->params.dsize);
         if (!dst) {
             mp_err(log, "Out of memory.\n");
             return 0;

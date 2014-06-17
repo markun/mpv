@@ -201,11 +201,11 @@ static void release_va_surface(void *arg)
 }
 
 static struct mp_image *alloc_surface(struct mp_vaapi_ctx *ctx, int rt_format,
-                                      int w, int h)
+                                      struct mp_size size)
 {
     VASurfaceID id = VA_INVALID_ID;
     VAStatus status;
-    status = vaCreateSurfaces(ctx->display, w, h, rt_format, 1, &id);
+    status = vaCreateSurfaces(ctx->display, size.w, size.h, rt_format, 1, &id);
     if (!CHECK_VA_STATUS(ctx, "vaCreateSurfaces()"))
         return NULL;
 
@@ -223,7 +223,7 @@ static struct mp_image *alloc_surface(struct mp_vaapi_ctx *ctx, int rt_format,
 
     struct mp_image img = {0};
     mp_image_setfmt(&img, IMGFMT_VAAPI);
-    mp_image_set_size(&img, w, h);
+    mp_image_set_size(&img, size);
     img.planes[0] = (uint8_t*)surface;
     img.planes[3] = (uint8_t*)(uintptr_t)surface->id;
     return mp_image_new_custom_ref(&img, surface, release_va_surface);
@@ -255,7 +255,7 @@ static int va_surface_image_alloc(struct mp_image *img, VAImageFormat *format)
     if (status == VA_STATUS_SUCCESS) {
         /* vaDeriveImage() is supported, check format */
         if (p->image.format.fourcc == format->fourcc &&
-            p->image.width == img->w && p->image.height == img->h)
+            p->image.width == img->size.w && p->image.height == img->size.h)
         {
             p->is_derived = true;
             MP_VERBOSE(p->ctx, "Using vaDeriveImage()\n");
@@ -266,7 +266,7 @@ static int va_surface_image_alloc(struct mp_image *img, VAImageFormat *format)
     }
     if (status != VA_STATUS_SUCCESS) {
         p->image.image_id = VA_INVALID_ID;
-        status = vaCreateImage(p->display, format, img->w, img->h, &p->image);
+        status = vaCreateImage(p->display, format, img->size.w, img->size.h, &p->image);
         if (!CHECK_VA_STATUS(p->ctx, "vaCreateImage()")) {
             p->image.image_id = VA_INVALID_ID;
             return -1;
@@ -307,8 +307,9 @@ bool va_image_map(struct mp_vaapi_ctx *ctx, VAImage *image, struct mp_image *mpi
         return false;
 
     *mpi = (struct mp_image) {0};
+    struct mp_size size = { image->width, image->height };
     mp_image_setfmt(mpi, imgfmt);
-    mp_image_set_size(mpi, image->width, image->height);
+    mp_image_set_size(mpi, size);
 
     for (int p = 0; p < image->num_planes; p++) {
         mpi->stride[p] = image->pitches[p];
@@ -349,8 +350,8 @@ int va_surface_upload(struct mp_image *va_dst, struct mp_image *sw_src)
     if (!p->is_derived) {
         VAStatus status = vaPutImage2(p->display, p->id,
                                       p->image.image_id,
-                                      0, 0, sw_src->w, sw_src->h,
-                                      0, 0, sw_src->w, sw_src->h);
+                                      0, 0, sw_src->size.w, sw_src->size.h,
+                                      0, 0, sw_src->size.w, sw_src->size.h);
         if (!CHECK_VA_STATUS(p->ctx, "vaPutImage()"))
             return -1;
     }
@@ -374,7 +375,7 @@ static struct mp_image *try_download(struct mp_image *src,
 
     if (!p->is_derived) {
         status = vaGetImage(p->display, p->id, 0, 0,
-                            src->w, src->h, image->image_id);
+                            src->size.w, src->size.h, image->image_id);
         if (status != VA_STATUS_SUCCESS)
             return NULL;
     }
@@ -382,8 +383,8 @@ static struct mp_image *try_download(struct mp_image *src,
     struct mp_image *dst = NULL;
     struct mp_image tmp;
     if (va_image_map(p->ctx, image, &tmp)) {
-        dst = pool ? mp_image_pool_get(pool, tmp.imgfmt, tmp.w, tmp.h)
-                   : mp_image_alloc(tmp.imgfmt, tmp.w, tmp.h);
+        dst = pool ? mp_image_pool_get(pool, tmp.imgfmt, tmp.size)
+                   : mp_image_alloc(tmp.imgfmt, tmp.size);
         if (dst)
             mp_image_copy(dst, &tmp);
         va_image_unmap(p->ctx, image);
@@ -427,13 +428,13 @@ struct pool_alloc_ctx {
     int rt_format;
 };
 
-static struct mp_image *alloc_pool(void *pctx, int fmt, int w, int h)
+static struct mp_image *alloc_pool(void *pctx, int fmt, struct mp_size size)
 {
     struct pool_alloc_ctx *alloc_ctx = pctx;
     if (fmt != IMGFMT_VAAPI)
         return NULL;
 
-    return alloc_surface(alloc_ctx->vaapi, alloc_ctx->rt_format, w, h);
+    return alloc_surface(alloc_ctx->vaapi, alloc_ctx->rt_format, size);
 }
 
 // The allocator of the given image pool to allocate VAAPI surfaces, using

@@ -160,7 +160,7 @@ static int is_direct_mapping(VADisplay display)
 // We achieve this by reserving surfaces in the pool as needed.
 // Releasing surfaces is necessary after filling the surface id list so
 // that reserved surfaces can be reused for decoding.
-static bool preallocate_surfaces(struct lavc_ctx *ctx, int num, int w, int h,
+static bool preallocate_surfaces(struct lavc_ctx *ctx, int num, struct mp_size size,
                                  VASurfaceID out_surfaces[MAX_SURFACES])
 {
     struct priv *p = ctx->hwdec_priv;
@@ -169,7 +169,7 @@ static bool preallocate_surfaces(struct lavc_ctx *ctx, int num, int w, int h,
     bool res = true;
 
     for (int n = 0; n < num; n++) {
-        reserve[n] = mp_image_pool_get(p->pool, IMGFMT_VAAPI, w, h);
+        reserve[n] = mp_image_pool_get(p->pool, IMGFMT_VAAPI, size);
         out_surfaces[n] = va_surface_id(reserve[n]);
         if (out_surfaces[n] == VA_INVALID_ID) {
             MP_ERR(p, "Could not allocate surfaces.\n");
@@ -208,7 +208,7 @@ static bool has_profile(VAProfile *va_profiles, int num_profiles, VAProfile p)
     return false;
 }
 
-static int init_decoder(struct lavc_ctx *ctx, int fmt, int w, int h)
+static int init_decoder(struct lavc_ctx *ctx, int fmt, struct mp_size size)
 {
     void *tmp = talloc_new(NULL);
 
@@ -256,7 +256,7 @@ static int init_decoder(struct lavc_ctx *ctx, int fmt, int w, int h)
     }
 
     VASurfaceID surfaces[MAX_SURFACES];
-    if (!preallocate_surfaces(ctx, num_surfaces, w, h, surfaces)) {
+    if (!preallocate_surfaces(ctx, num_surfaces, size, surfaces)) {
         MP_ERR(p, "Could not allocate surfaces.\n");
         goto error;
     }
@@ -291,7 +291,7 @@ static int init_decoder(struct lavc_ctx *ctx, int fmt, int w, int h)
         goto error;
 
     status = vaCreateContext(p->display, p->va_context->config_id,
-                             w, h, VA_PROGRESSIVE,
+                             size.w, size.h, VA_PROGRESSIVE,
                              surfaces, num_surfaces,
                              &p->va_context->context_id);
     if (!CHECK_VA_STATUS(p, "vaCreateContext()"))
@@ -303,13 +303,12 @@ error:
     return res;
 }
 
-static struct mp_image *allocate_image(struct lavc_ctx *ctx, int format,
-                                       int w, int h)
+static struct mp_image *allocate_image(struct lavc_ctx *ctx, int format, struct mp_size size)
 {
     struct priv *p = ctx->hwdec_priv;
 
     struct mp_image *img =
-        mp_image_pool_get_no_alloc(p->pool, IMGFMT_VAAPI, w, h);
+        mp_image_pool_get_no_alloc(p->pool, IMGFMT_VAAPI, size);
     if (!img)
         MP_ERR(p, "Insufficient number of surfaces.\n");
     return img;

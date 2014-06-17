@@ -11,7 +11,7 @@ struct mpgl_osd_part {
     enum sub_bitmap_format format;
     int bitmap_id, bitmap_pos_id;
     GLuint texture;
-    int w, h;
+    struct mp_size size;
     GLuint buffer;
     int num_vertices;
     void *vertices;

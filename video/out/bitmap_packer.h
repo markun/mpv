@@ -1,20 +1,15 @@
 #ifndef MPLAYER_PACK_RECTANGLES_H
 #define MPLAYER_PACK_RECTANGLES_H
 
-struct pos {
-    int x;
-    int y;
-};
+#include "common/common.h"
 
 struct bitmap_packer {
-    int w;
-    int h;
-    int w_max;
-    int h_max;
+    struct mp_size size;
+    struct mp_size size_max;
     int padding;
     int count;
-    struct pos *in;
-    struct pos *result;
+    struct mp_pos *in;
+    struct mp_pos *result;
     int used_width;
     int used_height;
 
@@ -31,7 +26,7 @@ void packer_reset(struct bitmap_packer *packer);
 
 // Get the bounding box used for bitmap data (including padding).
 // The bounding box doesn't exceed (0,0)-(packer->w,packer->h).
-void packer_get_bb(struct bitmap_packer *packer, struct pos out_bb[2]);
+void packer_get_bb(struct bitmap_packer *packer, struct mp_pos out_bb[2]);
 
 /* Reallocate packer->in for at least to desired number of items.
  * Also sets packer->count to the same value.

@@ -184,7 +184,7 @@ static void vf_control_all(struct vf_chain *c, int cmd, void *arg)
 static void vf_fix_img_params(struct mp_image *img, struct mp_image_params *p)
 {
     // Filters must absolutely set these correctly.
-    assert(img->w == p->w && img->h == p->h);
+    assert(mp_size_equals(&img->size, &p->size));
     assert(img->imgfmt == p->imgfmt);
     // Too many things don't set this correctly.
     // If --colormatrix is used, decoder and filter chain disagree too.
@@ -199,7 +199,7 @@ struct mp_image *vf_alloc_out_image(struct vf_instance *vf)
 {
     struct mp_image_params *p = &vf->fmt_out;
     assert(p->imgfmt);
-    struct mp_image *img = mp_image_pool_get(vf->out_pool, p->imgfmt, p->w, p->h);
+    struct mp_image *img = mp_image_pool_get(vf->out_pool, p->imgfmt, p->size);
     if (img)
         vf_fix_img_params(img, p);
     return img;
@@ -211,7 +211,7 @@ bool vf_make_out_image_writeable(struct vf_instance *vf, struct mp_image *img)
     struct mp_image_params *p = &vf->fmt_out;
     assert(p->imgfmt);
     assert(p->imgfmt == img->imgfmt);
-    assert(p->w == img->w && p->h == img->h);
+    assert(mp_size_equals(&p->size, &img->size));
     return mp_image_pool_make_writeable(vf->out_pool, img);
 }
 
@@ -226,9 +226,9 @@ static int vf_default_query_format(struct vf_instance *vf, unsigned int fmt)
 static void print_fmt(struct mp_log *log, int msglevel, struct mp_image_params *p)
 {
     if (p && p->imgfmt) {
-        mp_msg(log, msglevel, "%dx%d", p->w, p->h);
-        if (p->w != p->d_w || p->h != p->d_h)
-            mp_msg(log, msglevel, "->%dx%d", p->d_w, p->d_h);
+        mp_msg(log, msglevel, "%dx%d", p->size.w, p->size.h);
+        if (!mp_size_equals(&p->size, &p->dsize))
+            mp_msg(log, msglevel, "->%dx%d", p->dsize.w, p->dsize.h);
         mp_msg(log, msglevel, " %s", mp_imgfmt_to_name(p->imgfmt));
         mp_msg(log, msglevel, " %s/%s", mp_csp_names[p->colorspace],
                    mp_csp_levels_names[p->colorlevels]);
@@ -485,15 +485,13 @@ void vf_seek_reset(struct vf_chain *c)
 }
 
 int vf_next_config(struct vf_instance *vf,
-                   int width, int height, int d_width, int d_height,
+                   struct mp_size size, struct mp_size dsize,
                    unsigned int voflags, unsigned int outfmt)
 {
     vf->fmt_out = vf->fmt_in;
     vf->fmt_out.imgfmt = outfmt;
-    vf->fmt_out.w = width;
-    vf->fmt_out.h = height;
-    vf->fmt_out.d_w = d_width;
-    vf->fmt_out.d_h = d_height;
+    vf->fmt_out.size = size;
+    vf->fmt_out.dsize = dsize;
     return 1;
 }
 
@@ -575,7 +573,7 @@ static int vf_reconfig_wrapper(struct vf_instance *vf,
     if (vf->reconfig) {
         r = vf->reconfig(vf, &vf->fmt_in, &vf->fmt_out);
     } else if (vf->config) {
-        r = vf->config(vf, p->w, p->h, p->d_w, p->d_h, 0, p->imgfmt) ? 0 : -1;
+        r = vf->config(vf, p->size, p->dsize, 0, p->imgfmt) ? 0 : -1;
     } else {
         r = 0;
     }
@@ -631,7 +629,7 @@ int vf_reconfig(struct vf_chain *c, const struct mp_image_params *params,
     vf_print_filter_chain(c, loglevel, failing);
     if (r < 0) {
         c->input_params = c->override_params = c->output_params =
-            (struct mp_image_params){0};
+            (struct mp_image_params){};
     }
     return r;
 }
@@ -711,24 +709,22 @@ void vf_destroy(struct vf_chain *c)
 // When changing the size of an image that had old_w/old_h with
 // DAR *d_width/*d_height to the new size new_w/new_h, adjust
 // *d_width/*d_height such that the new image has the same pixel aspect ratio.
-void vf_rescale_dsize(int *d_width, int *d_height, int old_w, int old_h,
-                      int new_w, int new_h)
+void vf_rescale_dsize(struct mp_size *dsize, struct mp_size old_size, struct mp_size new_size)
 {
-    *d_width  = *d_width  * new_w / old_w;
-    *d_height = *d_height * new_h / old_h;
+    dsize->w  = dsize->w * new_size.w / old_size.w;
+    dsize->h  = dsize->h * new_size.h / old_size.h;
 }
 
 // Set *d_width/*d_height to display aspect ratio with the givem source size
-void vf_set_dar(int *d_w, int *d_h, int w, int h, double dar)
+void vf_set_dar(struct mp_size *dsize, struct mp_size size, double dar)
 {
-    *d_w = w;
-    *d_h = h;
+    *dsize = size;
     if (dar > 0.01) {
-        *d_w = h * dar + 0.5;
+        dsize->w = size.h * dar + 0.5;
         // we don't like horizontal downscale
-        if (*d_w < w) {
-            *d_w = w;
-            *d_h = w / dar + 0.5;
+        if (dsize->w < size.w) {
+            dsize->w = size.w;
+            dsize->h = size.w / dar + 0.5;
         }
     }
 }

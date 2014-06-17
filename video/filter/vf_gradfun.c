@@ -46,8 +46,8 @@ struct vf_priv_s {
 static void lavfi_recreate(struct vf_instance *vf)
 {
     struct vf_priv_s *p = vf_lw_old_priv(vf);
-    int w = vf->fmt_in.w;
-    int h = vf->fmt_in.h;
+    int w = vf->fmt_in.size.w;
+    int h = vf->fmt_in.size.h;
     p->radius = p->cfg_radius;
     if (p->cfg_size > -1)
         p->radius = (p->cfg_size / 100.0f) * sqrtf(w * w + h * h);

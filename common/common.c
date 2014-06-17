@@ -89,22 +89,22 @@ char *mp_format_time(double time, bool fractions)
 // Set rc to the union of rc and rc2
 void mp_rect_union(struct mp_rect *rc, const struct mp_rect *rc2)
 {
-    rc->x0 = FFMIN(rc->x0, rc2->x0);
-    rc->y0 = FFMIN(rc->y0, rc2->y0);
-    rc->x1 = FFMAX(rc->x1, rc2->x1);
-    rc->y1 = FFMAX(rc->y1, rc2->y1);
+    rc->start.x = FFMIN(rc->start.x, rc2->start.x);
+    rc->start.y = FFMIN(rc->start.y, rc2->start.y);
+    rc->end.x = FFMAX(rc->end.x, rc2->end.x);
+    rc->end.y = FFMAX(rc->end.y, rc2->end.y);
 }
 
 // Set rc to the intersection of rc and src.
 // Return false if the result is empty.
 bool mp_rect_intersection(struct mp_rect *rc, const struct mp_rect *rc2)
 {
-    rc->x0 = FFMAX(rc->x0, rc2->x0);
-    rc->y0 = FFMAX(rc->y0, rc2->y0);
-    rc->x1 = FFMIN(rc->x1, rc2->x1);
-    rc->y1 = FFMIN(rc->y1, rc2->y1);
+    rc->start.x = FFMAX(rc->start.x, rc2->start.x);
+    rc->start.y = FFMAX(rc->start.y, rc2->start.y);
+    rc->end.x = FFMIN(rc->end.x, rc2->end.x);
+    rc->end.y = FFMIN(rc->end.y, rc2->end.y);
 
-    return rc->x1 > rc->x0 && rc->y1 > rc->y0;
+    return rc->end.x > rc->start.x && rc->end.y > rc->start.y;
 }
 
 // This works like snprintf(), except that it starts writing the first output
@@ -242,4 +242,32 @@ bool mp_append_escaped_string(void *talloc_ctx, bstr *dst, bstr *src)
         return true;
     }
     return false;
+}
+
+bool mp_size_equals(const struct mp_size *s1, const struct mp_size *s2) {
+    return s1->w == s2->w && s1->h == s2->h;
+}
+
+struct mp_size mp_rect2size(const struct mp_rect *rect) {
+    return (struct mp_size){ rect->end.x - rect->start.x, rect->end.y - rect->start.y };
+}
+
+struct mp_pos mp_extend2pos(const struct mp_extend *ext) {
+    return (struct mp_pos){ ext->start.x + ext->size.w, ext->start.y + ext->size.h };
+}
+
+struct mp_extend mp_rect2extend(const struct mp_rect *rect) {
+    return (struct mp_extend) { .start = rect->start, .size = mp_rect2size(rect) };
+}
+
+struct mp_rect mp_extend2rect(const struct mp_extend *ext) {
+    return (struct mp_rect) { .start = ext->start, .end = mp_extend2pos(ext) };
+}
+
+struct mp_pos mp_size2pos(const struct mp_size *size) {
+    return (struct mp_pos) { size->w, size->h };
+}
+
+struct mp_rect mp_size2rect(const struct mp_size *size) {
+    return (struct mp_rect) { .end = mp_size2pos(size) };
 }

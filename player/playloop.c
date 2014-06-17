@@ -860,12 +860,11 @@ void handle_force_window(struct MPContext *mpctx, bool reconfig)
                 break;
             }
         }
-        int w = 960;
-        int h = 480;
+        struct mp_size size = { 960, 480 };
         struct mp_image_params p = {
             .imgfmt = config_format,
-            .w = w,   .h = h,
-            .d_w = w, .d_h = h,
+            .size = size,
+            .dsize = size,
         };
         vo_reconfig(vo, &p, 0);
         vo_redraw(vo);

@@ -56,7 +56,7 @@ typedef struct vf_instance {
 
     // Legacy variant, use reconfig instead.
     int (*config)(struct vf_instance *vf,
-                  int width, int height, int d_width, int d_height,
+                  struct mp_size size, struct mp_size dsize,
                   unsigned int flags, unsigned int outfmt);
 
     int (*control)(struct vf_instance *vf, int request, void *data);
@@ -160,16 +160,15 @@ void vf_add_output_frame(struct vf_instance *vf, struct mp_image *img);
 
 // default wrappers:
 int vf_next_config(struct vf_instance *vf,
-                   int width, int height, int d_width, int d_height,
+                   struct mp_size size, struct mp_size dsize,
                    unsigned int flags, unsigned int outfmt);
 int vf_next_query_format(struct vf_instance *vf, unsigned int fmt);
 
 
 // Helpers
 
-void vf_rescale_dsize(int *d_width, int *d_height, int old_w, int old_h,
-                      int new_w, int new_h);
-void vf_set_dar(int *d_width, int *d_height, int w, int h, double dar);
+void vf_rescale_dsize(struct mp_size *dsize, struct mp_size old_size, struct mp_size new_size);
+void vf_set_dar(struct mp_size *dsize, struct mp_size size, double dar);
 
 struct vf_detc_pts_buf {
     double inpts_prev, outpts_prev;

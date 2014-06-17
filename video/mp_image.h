@@ -43,8 +43,8 @@
 // usually copy the whole struct, so that fields added later will be preserved.
 struct mp_image_params {
     enum mp_imgfmt imgfmt;      // pixel format
-    int w, h;                   // image dimensions
-    int d_w, d_h;               // define display aspect ratio (never 0/0)
+    struct mp_size size;                   // image dimensions
+    struct mp_size dsize;               // define display aspect ratio (never 0/0)
     enum mp_csp colorspace;
     enum mp_csp_levels colorlevels;
     enum mp_chroma_location chroma_location;
@@ -81,10 +81,9 @@ typedef struct mp_image {
     struct mp_imgfmt_desc fmt;
     enum mp_imgfmt imgfmt;
     int num_planes;
-    int chroma_x_shift; // horizontal
-    int chroma_y_shift; // vertical
+    struct mp_pos chroma_shift;
 
-    int w,h;  // visible dimensions
+    struct mp_size size;  // visible dimensions
     uint8_t *planes[MP_MAX_PLANES];
     int stride[MP_MAX_PLANES];
 
@@ -95,10 +94,8 @@ typedef struct mp_image {
     int qscale_type; // 0->mpeg1/4/h263, 1->mpeg2
 
     /* redundant */
-    int chroma_width;
-    int chroma_height;
-    int plane_w[MP_MAX_PLANES];
-    int plane_h[MP_MAX_PLANES];
+    struct mp_size chroma_size;
+    struct mp_size plane_size[MP_MAX_PLANES];
 
     /* only inside filter chain */
     double pts;
@@ -108,7 +105,7 @@ typedef struct mp_image {
     void* priv;
 } mp_image_t;
 
-struct mp_image *mp_image_alloc(int fmt, int w, int h);
+struct mp_image *mp_image_alloc(int fmt, struct mp_size size);
 void mp_image_copy(struct mp_image *dmpi, struct mp_image *mpi);
 void mp_image_copy_attributes(struct mp_image *dmpi, struct mp_image *mpi);
 struct mp_image *mp_image_new_copy(struct mp_image *img);
@@ -119,11 +116,14 @@ void mp_image_setrefp(struct mp_image **p_img, struct mp_image *new_value);
 void mp_image_unrefp(struct mp_image **p_img);
 
 void mp_image_clear(struct mp_image *mpi, int x0, int y0, int x1, int y1);
+void mp_image_clear_rc(struct mp_image *img, struct mp_rect rc);
 void mp_image_crop(struct mp_image *img, int x0, int y0, int x1, int y1);
 void mp_image_crop_rc(struct mp_image *img, struct mp_rect rc);
+void mp_image_crop_rel(struct mp_image *img, int x, int y, int w, int h);
+void mp_image_crop_ext(struct mp_image *img, struct mp_extend ext);
 void mp_image_vflip(struct mp_image *img);
 
-void mp_image_set_size(struct mp_image *mpi, int w, int h);
+void mp_image_set_size(struct mp_image *mpi, struct mp_size size);
 
 void mp_image_setfmt(mp_image_t* mpi, int out_fmt);
 void mp_image_steal_data(struct mp_image *dst, struct mp_image *src);

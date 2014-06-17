@@ -65,8 +65,8 @@ void gl_video_set_lut3d(struct gl_video *p, struct lut3d *lut3d);
 void gl_video_upload_image(struct gl_video *p, struct mp_image *img);
 void gl_video_render_frame(struct gl_video *p);
 struct mp_image *gl_video_download_image(struct gl_video *p);
-void gl_video_resize(struct gl_video *p, struct mp_rect *window,
-                     struct mp_rect *src, struct mp_rect *dst,
+void gl_video_resize(struct gl_video *p, struct mp_extend *window,
+                     struct mp_extend *src, struct mp_extend *dst,
                      struct mp_osd_res *osd);
 void gl_video_get_colorspace(struct gl_video *p, struct mp_image_params *params);
 bool gl_video_set_equalizer(struct gl_video *p, const char *name, int val);

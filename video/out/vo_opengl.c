@@ -80,10 +80,10 @@ static void resize(struct gl_priv *p)
 {
     struct vo *vo = p->vo;
 
-    MP_VERBOSE(vo, "Resize: %dx%d\n", vo->dwidth, vo->dheight);
+    MP_VERBOSE(vo, "Resize: %dx%d\n", vo->dsize.w, vo->dsize.h);
 
-    struct mp_rect wnd = {0, 0, vo->dwidth, vo->dheight};
-    struct mp_rect src, dst;
+    struct mp_extend wnd = {{0, 0}, {vo->dsize.w, vo->dsize.h}};
+    struct mp_extend src, dst;
     struct mp_osd_res osd;
     vo_get_src_dst_rects(vo, &src, &dst, &osd);
 

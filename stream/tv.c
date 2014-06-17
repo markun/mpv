@@ -835,10 +835,10 @@ static int demux_open_tv(demuxer_t *demuxer, enum demux_check check)
         }
 
     /* set width */
-    funcs->control(tvh->priv, TVI_CONTROL_VID_GET_WIDTH, &sh_video->disp_w);
+    funcs->control(tvh->priv, TVI_CONTROL_VID_GET_WIDTH, &sh_video->disp_size.w);
 
     /* set height */
-    funcs->control(tvh->priv, TVI_CONTROL_VID_GET_HEIGHT, &sh_video->disp_h);
+    funcs->control(tvh->priv, TVI_CONTROL_VID_GET_HEIGHT, &sh_video->disp_size.h);
 
     demuxer->seekable = 0;
 

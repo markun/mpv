@@ -31,51 +31,49 @@
 #include "vf.h"
 
 struct vf_priv_s {
-    int w, h;
+    struct mp_size size;
     int method; // aspect method, 0 -> downscale, 1-> upscale. +2 -> original aspect.
     int round;
     float aspect;
 };
 
 static int config(struct vf_instance *vf,
-    int width, int height, int d_width, int d_height,
+    struct mp_size size, struct mp_size dsize,
     unsigned int flags, unsigned int outfmt)
 {
-    int w = vf->priv->w;
-    int h = vf->priv->h;
-    if (vf->priv->aspect < 0.001) { // did the user input aspect or w,h params
-        if (w == 0) w = d_width;
-        if (h == 0) h = d_height;
-        if (w == -1) w = width;
-        if (h == -1) h = height;
-        if (w == -2) w = h * (double)d_width / d_height;
-        if (w == -3) w = h * (double)width / height;
-        if (h == -2) h = w * (double)d_height / d_width;
-        if (h == -3) h = w * (double)height / width;
+    struct mp_size psize = vf->priv->size;
+    if (vf->priv->aspect < 0.001) { // did the user input aspect or psize.w,psize.h params
+        if (psize.w == 0) psize.w = dsize.w;
+        if (psize.h == 0) psize.h = dsize.h;
+        if (psize.w == -1) psize.w = size.w;
+        if (psize.h == -1) psize.h = size.h;
+        if (psize.w == -2) psize.w = psize.h * (double)dsize.w / dsize.h;
+        if (psize.w == -3) psize.w = psize.h * (double)size.w / size.h;
+        if (psize.h == -2) psize.h = psize.w * (double)dsize.h / dsize.w;
+        if (psize.h == -3) psize.h = psize.w * (double)size.h / size.w;
         if (vf->priv->method > -1) {
-            double aspect = (vf->priv->method & 2) ? ((double)height / width) : ((double)d_height / d_width);
-            if ((h > w * aspect) ^ (vf->priv->method & 1)) {
-                h = w * aspect;
+            double aspect = (vf->priv->method & 2) ? ((double)size.h / size.w) : ((double)dsize.h / dsize.w);
+            if ((psize.h > psize.w * aspect) ^ (vf->priv->method & 1)) {
+                psize.h = psize.w * aspect;
             } else {
-                w = h / aspect;
+                psize.w = psize.h / aspect;
             }
         }
         if (vf->priv->round > 1) { // round up
-            w += (vf->priv->round - 1 - (w - 1) % vf->priv->round);
-            h += (vf->priv->round - 1 - (h - 1) % vf->priv->round);
+            psize.w += (vf->priv->round - 1 - (psize.w - 1) % vf->priv->round);
+            psize.h += (vf->priv->round - 1 - (psize.h - 1) % vf->priv->round);
         }
-        d_width = w;
-        d_height = h;
+        dsize = psize;
     } else {
-        if (vf->priv->aspect * height > width) {
-            d_width = height * vf->priv->aspect + .5;
-            d_height = height;
+        if (vf->priv->aspect * size.h > size.w) {
+            dsize.w = size.h * vf->priv->aspect + .5;
+            dsize.h = size.h;
         } else {
-            d_height = width / vf->priv->aspect + .5;
-            d_width = width;
+            dsize.h = size.w / vf->priv->aspect + .5;
+            dsize.w = size.w;
         }
     }
-    return vf_next_config(vf, width, height, d_width, d_height, flags, outfmt);
+    return vf_next_config(vf, size, dsize, flags, outfmt);
 }
 
 static int vf_open(vf_instance_t *vf)
@@ -92,14 +90,13 @@ const vf_info_t vf_info_dsize = {
     .priv_size = sizeof(struct vf_priv_s),
     .priv_defaults = &(const struct vf_priv_s){
         .aspect = 0.0,
-        .w = -1,
-        .h = -1,
+        .size = { -1, -1 },
         .method = -1,
         .round = 1,
     },
     .options = (const struct m_option[]){
-        OPT_INTRANGE("w", w, 0, -3, INT_MAX),
-        OPT_INTRANGE("h", h, 0, -3, INT_MAX),
+        OPT_INTRANGE("size.w", size.w, 0, -3, INT_MAX),
+        OPT_INTRANGE("size.h", size.h, 0, -3, INT_MAX),
         OPT_INTRANGE("method", method, 0, -1, 3),
         OPT_INTRANGE("round", round, 0, 0, 9999),
         OPT_FLOAT("aspect", aspect, CONF_RANGE, .min = 0, .max = 10),

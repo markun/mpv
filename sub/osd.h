@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include "options/m_option.h"
+#include "common/common.h"
 
 // NOTE: VOs must support at least SUBBITMAP_RGBA.
 enum sub_bitmap_format {
@@ -48,9 +49,9 @@ struct sub_bitmap {
     int stride;
     // Note: not clipped, going outside the screen area is allowed
     //       (except for SUBBITMAP_LIBASS, which is always clipped)
-    int w, h;
-    int x, y;
-    int dw, dh;
+    struct mp_pos start;
+    struct mp_size size;
+    struct mp_size dsize;
 
     struct {
         uint32_t color;
@@ -75,8 +76,8 @@ struct sub_bitmaps {
 };
 
 struct mp_osd_res {
-    int w, h; // screen dimensions, including black borders
-    int mt, mb, ml, mr; // borders (top, bottom, left, right)
+    struct mp_size size; // screen dimensions, including black borders
+    struct mp_margin margin;
     double display_par;
 };
 

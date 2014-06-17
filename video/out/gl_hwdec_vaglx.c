@@ -94,7 +94,7 @@ static int reinit(struct gl_hwdec *hw, const struct mp_image_params *params)
     gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    gl->TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, params->w, params->h, 0,
+    gl->TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, params->size.w, params->size.h, 0,
                    GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     gl->BindTexture(GL_TEXTURE_2D, 0);
 

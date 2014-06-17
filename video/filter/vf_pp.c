@@ -42,7 +42,7 @@ struct vf_priv_s {
 //===========================================================================//
 
 static int config(struct vf_instance *vf,
-        int width, int height, int d_width, int d_height,
+        struct mp_size size, struct mp_size dsize,
         unsigned int voflags, unsigned int outfmt){
     int flags= PP_CPU_CAPS_AUTO;
     switch(outfmt){
@@ -53,9 +53,9 @@ static int config(struct vf_instance *vf,
     }
 
     if(vf->priv->context) pp_free_context(vf->priv->context);
-    vf->priv->context= pp_get_context(width, height, flags);
+    vf->priv->context= pp_get_context(size.w, size.h, flags);
 
-    return vf_next_config(vf,width,height,d_width,d_height,voflags,outfmt);
+    return vf_next_config(vf,size,dsize,voflags,outfmt);
 }
 
 static void uninit(struct vf_instance *vf){
@@ -95,12 +95,12 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
     }
 
     // apparently this is required
-    assert(mpi->stride[0] >= ((mpi->w+7)&(~7)));
+    assert(mpi->stride[0] >= ((mpi->size.w+7)&(~7)));
 
         // do the postprocessing! (or copy if no DR)
         pp_postprocess((const uint8_t **)mpi->planes, mpi->stride,
                     dmpi->planes,dmpi->stride,
-                    (mpi->w+7)&(~7),mpi->h,
+                    (mpi->size.w+7)&(~7),mpi->size.h,
                     mpi->qscale, mpi->qstride,
                     vf->priv->ppMode[ vf->priv->pp ], vf->priv->context,
                     mpi->pict_type | (mpi->qscale_type ? PP_PICT_TYPE_QP2 : 0));

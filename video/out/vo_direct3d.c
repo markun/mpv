@@ -91,7 +91,7 @@ struct texplane {
     int bytes_per_pixel;
     int bits_per_pixel;
     // chroma shifts
-    // e.g. get the plane's width in pixels with (priv->src_width >> shift_x)
+    // e.g. get the plane's width in pixels with (priv->src_size.w >> shift_x)
     int shift_x, shift_y;
     D3DFORMAT d3d_format;
     struct d3dtex texture;
@@ -138,8 +138,7 @@ typedef struct d3d_priv {
                                 in fullscreen */
     RECT fs_panscan_rect;       /**< PanScan source surface cropping in
                                 fullscreen */
-    int src_width;              /**< Source (movie) width */
-    int src_height;             /**< Source (movie) heigth */
+    int src_size;               /**< Source (movie) size */
     struct mp_osd_res osd_res;
     int image_format;           /**< mplayer image format */
     struct mp_image_params params;
@@ -477,8 +476,8 @@ static bool d3d_configure_video_objects(d3d_priv *priv)
                 if (!d3dtex_allocate(priv,
                                      &plane->texture,
                                      plane->d3d_format,
-                                     priv->src_width >> plane->shift_x,
-                                     priv->src_height >> plane->shift_y))
+                                     priv->src_size.w >> plane->shift_x,
+                                     priv->src_size.h >> plane->shift_y))
                 {
                     MP_ERR(priv, "Allocating plane %d"
                            " failed.\n", n);
@@ -514,7 +513,7 @@ static bool d3d_configure_video_objects(d3d_priv *priv)
 
         if (!priv->d3d_surface &&
             FAILED(IDirect3DDevice9_CreateOffscreenPlainSurface(
-                priv->d3d_device, priv->src_width, priv->src_height,
+                priv->d3d_device, priv->src_size.w, priv->src_size.h,
                 priv->movie_src_fmt, D3DPOOL_DEFAULT, &priv->d3d_surface, NULL)))
         {
             MP_ERR(priv, "Allocating offscreen surface failed.\n");
@@ -1282,13 +1281,12 @@ static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
     }
 
     if ((priv->image_format != params->imgfmt)
-        || (priv->src_width != params->w)
-        || (priv->src_height != params->h))
+        || (priv->src_size.w != params->size.w)
+        || (priv->src_size.h != params->size.h))
     {
         d3d_destroy_video_objects(priv);
 
-        priv->src_width = params->w;
-        priv->src_height = params->h;
+        priv->src_size = params->size;
         priv->params = *params;
         init_rendering_mode(priv, params->imgfmt, true);
     }
@@ -1347,7 +1345,7 @@ static void uninit(struct vo *vo)
 static bool get_video_buffer(d3d_priv *priv, struct mp_image *out)
 {
     *out = (struct mp_image) {0};
-    mp_image_set_size(out, priv->src_width, priv->src_height);
+    mp_image_set_size(out, priv->src_size.w, priv->src_size.h);
     mp_image_setfmt(out, priv->image_format);
 
     if (!priv->d3d_device)

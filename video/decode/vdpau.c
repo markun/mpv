@@ -34,7 +34,8 @@ struct priv {
     struct mp_vdpau_ctx        *mpvdp;
     struct vdp_functions       *vdp;
     uint64_t                    preemption_counter;
-    int                         fmt, w, h;
+    int                         fmt;
+    struct mp_size              size;
 
     AVVDPAUContext              context;
 };
@@ -61,7 +62,7 @@ static const struct hwdec_profile_entry profiles[] = {
     {0}
 };
 
-static int init_decoder(struct lavc_ctx *ctx, int fmt, int w, int h)
+static int init_decoder(struct lavc_ctx *ctx, int fmt, struct mp_size size)
 {
     struct priv *p = ctx->hwdec_priv;
     struct vdp_functions *vdp = &p->mpvdp->vdp;
@@ -69,8 +70,7 @@ static int init_decoder(struct lavc_ctx *ctx, int fmt, int w, int h)
     VdpStatus vdp_st;
 
     p->fmt = fmt;
-    p->w = w;
-    p->h = h;
+    p->size = size;
 
     // During preemption, pretend everything is ok.
     if (mp_vdpau_handle_preemption(p->mpvdp, &p->preemption_counter) < 0)
@@ -95,15 +95,15 @@ static int init_decoder(struct lavc_ctx *ctx, int fmt, int w, int h)
         MP_ERR(p, "Codec or profile not supported by hardware.\n");
         goto fail;
     }
-    if (w > maxw || h > maxh) {
+    if (size.w > maxw || size.h > maxh) {
         MP_ERR(p, "Video resolution(%dx%d) is larger than the maximum size(%dx%d) supported.\n",
-               w, h, maxw, maxh);
+               size.w, size.h, maxw, maxh);
         goto fail;
     }
 
     int maxrefs = hwdec_get_max_refs(ctx);
 
-    vdp_st = vdp->decoder_create(vdp_device, pe->hw_profile, w, h, maxrefs,
+    vdp_st = vdp->decoder_create(vdp_device, pe->hw_profile, size.w, size.h, maxrefs,
                                  &p->context.decoder);
     CHECK_VDP_WARNING(p, "Failed creating VDPAU decoder");
     if (vdp_st != VDP_STATUS_OK)
@@ -115,20 +115,19 @@ fail:
     return -1;
 }
 
-static struct mp_image *allocate_image(struct lavc_ctx *ctx, int fmt,
-                                       int w, int h)
+static struct mp_image *allocate_image(struct lavc_ctx *ctx, int fmt, struct mp_size size)
 {
     struct priv *p = ctx->hwdec_priv;
 
     if (mp_vdpau_handle_preemption(p->mpvdp, &p->preemption_counter) == 0) {
-        if (init_decoder(ctx, p->fmt, p->w, p->h) < 0)
+        if (init_decoder(ctx, p->fmt, p->size) < 0)
             return NULL;
     }
 
     VdpChromaType chroma;
     mp_vdpau_get_format(IMGFMT_VDPAU, &chroma, NULL);
 
-    return mp_vdpau_get_video_surface(p->mpvdp, chroma, w, h);
+    return mp_vdpau_get_video_surface(p->mpvdp, chroma, size.w, size.h);
 }
 
 static void uninit(struct lavc_ctx *ctx)

@@ -396,8 +396,8 @@ static void init_avctx(struct dec_video *vd, const char *decoder,
     ctx->skip_frame = avctx->skip_frame;
 
     avctx->codec_tag = sh->format;
-    avctx->coded_width  = sh->video->disp_w;
-    avctx->coded_height = sh->video->disp_h;
+    avctx->coded_width  = sh->video->disp_size.w;
+    avctx->coded_height = sh->video->disp_size.h;
 
     // demux_mkv
     if (sh->video->bih)
@@ -453,9 +453,8 @@ static void update_image_params(struct dec_video *vd, AVFrame *frame,
 {
     vd_ffmpeg_ctx *ctx = vd->priv;
     struct MPOpts *opts = ctx->opts;
-    int width = frame->width;
-    int height = frame->height;
-    float aspect = av_q2d(frame->sample_aspect_ratio) * width / height;
+    struct mp_size size = { frame->width, frame->height };
+    float aspect = av_q2d(frame->sample_aspect_ratio) * size.w / size.h;
     int pix_fmt = frame->format;
 
     if (pix_fmt != ctx->pix_fmt) {
@@ -466,15 +465,13 @@ static void update_image_params(struct dec_video *vd, AVFrame *frame,
                    av_get_pix_fmt_name(pix_fmt));
     }
 
-    int d_w, d_h;
-    vf_set_dar(&d_w, &d_h, width, height, aspect);
+    struct mp_size dsize;
+    vf_set_dar(&dsize, size, aspect);
 
     *out_params = (struct mp_image_params) {
         .imgfmt = ctx->best_csp,
-        .w = width,
-        .h = height,
-        .d_w = d_w,
-        .d_h = d_h,
+        .size = size,
+        .dsize = dsize,
         .colorspace = avcol_spc_to_mp_csp(ctx->avctx->colorspace),
         .colorlevels = avcol_range_to_mp_csp_levels(ctx->avctx->color_range),
         .chroma_location =
@@ -508,17 +505,16 @@ static enum AVPixelFormat get_format_hwdec(struct AVCodecContext *avctx,
                 // There could be more reasons for a change, and it's possible
                 // that we miss some. (Might also depend on the hwaccel type.)
                 bool change =
-                    ctx->hwdec_w != avctx->width ||
-                    ctx->hwdec_h != avctx->height ||
+                    ctx->hwdec_size.w != avctx->width ||
+                    ctx->hwdec_size.h != avctx->height ||
                     ctx->hwdec_fmt != ctx->hwdec->image_format ||
                     ctx->hwdec_profile != avctx->profile;
-                ctx->hwdec_w = avctx->width;
-                ctx->hwdec_h = avctx->height;
+                ctx->hwdec_size.w = avctx->width;
+                ctx->hwdec_size.h = avctx->height;
                 ctx->hwdec_fmt = ctx->hwdec->image_format;
                 ctx->hwdec_profile = avctx->profile;
                 if (ctx->hwdec->init_decoder && change) {
-                    if (ctx->hwdec->init_decoder(ctx, ctx->hwdec_fmt,
-                                                 ctx->hwdec_w, ctx->hwdec_h) < 0)
+                    if (ctx->hwdec->init_decoder(ctx, ctx->hwdec_fmt, ctx->hwdec_size) < 0)
                     {
                         ctx->hwdec_fmt = 0;
                         break;
@@ -555,15 +551,14 @@ static struct mp_image *get_surface_hwdec(struct dec_video *vd, AVFrame *pic)
     // require alignment of frame sizes) we want the decoded size, not the
     // aligned size. At least vdpau needs this: the video mixer is created
     // with decoded size, and the video surfaces must have matching size.
-    int w = ctx->avctx->width;
-    int h = ctx->avctx->height;
+    struct mp_size size = { ctx->avctx->width, ctx->avctx->height };
 
     if (ctx->hwdec->init_decoder) {
-        if (imgfmt != ctx->hwdec_fmt && w != ctx->hwdec_w && h != ctx->hwdec_h)
+        if (imgfmt != ctx->hwdec_fmt && !mp_size_equals(&size, &ctx->hwdec_size))
             return NULL;
     }
 
-    struct mp_image *mpi = ctx->hwdec->allocate_image(ctx, imgfmt, w, h);
+    struct mp_image *mpi = ctx->hwdec->allocate_image(ctx, imgfmt, size);
 
     if (mpi) {
         for (int i = 0; i < 4; i++)

@@ -44,7 +44,7 @@ static int init(struct lavc_ctx *ctx)
     return 0;
 }
 
-static int init_decoder(struct lavc_ctx *ctx, int fmt, int w, int h)
+static int init_decoder(struct lavc_ctx *ctx, int fmt, int struct mp_size)
 {
     av_vda_default_free(ctx->avctx);
 

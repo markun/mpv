@@ -28,14 +28,14 @@
 #include "video/mp_image.h"
 #include "vf.h"
 
-static int config(struct vf_instance *vf, int width, int height,
-                  int d_width, int d_height,
+static int config(struct vf_instance *vf, struct mp_size size, struct mp_size dsize,
                   unsigned int flags, unsigned int fmt)
 {
     struct mp_imgfmt_desc desc = mp_imgfmt_get_desc(fmt);
-    int a_w = MP_ALIGN_DOWN(width, desc.align_x);
-    vf_rescale_dsize(&d_width, &d_height, width, height, a_w, height);
-    return vf_next_config(vf, a_w, height, d_width, d_height, flags, fmt);
+    struct mp_size asize = size;
+    asize.w = MP_ALIGN_DOWN(size.w, desc.align_x);
+    vf_rescale_dsize(&dsize, size, asize);
+    return vf_next_config(vf, asize, dsize, flags, fmt);
 }
 
 static inline void mirror_4_m(uint8_t *dst, uint8_t *src, int p,
@@ -63,10 +63,10 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
     mp_image_copy_attributes(dmpi, mpi);
 
     for (int p = 0; p < mpi->num_planes; p++) {
-        for (int y = 0; y < mpi->plane_h[p]; y++) {
+        for (int y = 0; y < mpi->plane_size[p].h; y++) {
             void *p_src = mpi->planes[p] + mpi->stride[p] * y;
             void *p_dst = dmpi->planes[p] + dmpi->stride[p] * y;
-            int w = dmpi->plane_w[p];
+            int w = dmpi->plane_size[p].w;
             if (mpi->imgfmt == IMGFMT_YUYV) {
                 mirror_4_m(p_dst, p_src, w / 2, 2, 1, 0, 3);
             } else if (mpi->imgfmt == IMGFMT_UYVY) {

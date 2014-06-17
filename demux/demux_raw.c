@@ -60,8 +60,7 @@ struct demux_rawvideo_opts {
     int vformat;
     int mp_format;
     char *codec;
-    int width;
-    int height;
+    struct mp_size size;
     float fps;
     int imgsize;
 };
@@ -70,8 +69,8 @@ struct demux_rawvideo_opts {
 #define OPT_BASE_STRUCT struct demux_rawvideo_opts
 const struct m_sub_options demux_rawvideo_conf = {
     .opts = (const m_option_t[]) {
-        OPT_INTRANGE("w", width, 0, 1, 8192),
-        OPT_INTRANGE("h", height, 0, 1, 8192),
+        OPT_INTRANGE("w", size.w, 0, 1, 8192),
+        OPT_INTRANGE("h", size.h, 0, 1, 8192),
         OPT_GENERAL(int, "format", vformat, 0, .type = &m_option_type_fourcc),
         OPT_IMAGEFORMAT("mp-format", mp_format, 0),
         OPT_STRING("codec", codec, 0),
@@ -82,8 +81,7 @@ const struct m_sub_options demux_rawvideo_conf = {
     .size = sizeof(struct demux_rawvideo_opts),
     .defaults = &(const struct demux_rawvideo_opts){
         .vformat = MP_FOURCC_I420,
-        .width = 1280,
-        .height = 720,
+        .size = { 1280, 720 },
         .fps = 25,
     },
 };
@@ -142,11 +140,8 @@ static int demux_rawvideo_open(demuxer_t *demuxer, enum demux_check check)
     if (check != DEMUX_CHECK_REQUEST && check != DEMUX_CHECK_FORCE)
         return -1;
 
-    int width = opts->width;
-    int height = opts->height;
-
-    if (!width || !height) {
-        MP_ERR(demuxer, "rawvideo: width or height not specified!\n");
+    if (!opts->size.w || !opts->size.h) {
+        MP_ERR(demuxer, "rawvideo: opts->size.w or opts->size.h not specified!\n");
         return -1;
     }
 
@@ -159,7 +154,7 @@ static int demux_rawvideo_open(demuxer_t *demuxer, enum demux_check check)
         if (!imgsize) {
             struct mp_imgfmt_desc desc = mp_imgfmt_get_desc(opts->mp_format);
             for (int p = 0; p < desc.num_planes; p++) {
-                imgsize += ((width >> desc.xs[p]) * (height >> desc.ys[p]) *
+                imgsize += ((opts->size.w >> desc.xs[p]) * (opts->size.h >> desc.ys[p]) *
                             desc.bpp[p] + 7) / 8;
             }
         }
@@ -196,7 +191,7 @@ static int demux_rawvideo_open(demuxer_t *demuxer, enum demux_check check)
             MP_ERR(demuxer, "rawvideo: img size not specified and unknown format!\n");
             return -1;
         }
-        imgsize = width * height * bpp / 8;
+        imgsize = opts->size.w * opts->size.h * bpp / 8;
     }
 
     sh = new_sh_stream(demuxer, STREAM_VIDEO);
@@ -204,8 +199,7 @@ static int demux_rawvideo_open(demuxer_t *demuxer, enum demux_check check)
     sh->codec = decoder;
     sh->format = imgfmt;
     sh_video->fps = opts->fps;
-    sh_video->disp_w = width;
-    sh_video->disp_h = height;
+    sh_video->disp_size = opts->size;
     sh_video->bitrate = sh_video->fps * imgsize * 8;
 
     struct priv *p = talloc_ptrtype(demuxer, p);
